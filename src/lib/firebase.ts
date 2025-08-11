@@ -26,7 +26,7 @@ if (process.env.NODE_ENV === 'development') {
   try {
     connectFirestoreEmulator(db, 'localhost', 8080);
     connectAuthEmulator(auth, 'http://localhost:9099');
-  } catch (error) {
+  } catch {
     console.log('Emulators already connected or not available');
   }
 }

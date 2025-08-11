@@ -9,7 +9,8 @@ import {
   deleteDoc,
   query,
   orderBy,
-  serverTimestamp 
+  serverTimestamp,
+  getDocs
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -23,7 +24,7 @@ export interface GameState {
   audienceWindow: boolean;
   round2BonusApplied: boolean;
   logoOnly: boolean;
-  lastUpdated: any;
+  lastUpdated: unknown;
 }
 
 export interface Team {
@@ -47,7 +48,7 @@ export interface Answer {
   value: number;
   revealed: boolean;
   attribution: 'red' | 'green' | 'blue' | 'host' | 'neutral' | null;
-  revealedAt?: any;
+  revealedAt?: unknown;
 }
 
 export interface AudienceMember {
@@ -55,7 +56,7 @@ export interface AudienceMember {
   name: string;
   phone: string;
   team: 'red' | 'green' | 'blue';
-  submittedAt: any;
+  submittedAt: unknown;
 }
 
 // Game State Management
@@ -129,10 +130,10 @@ export class GameStateManager {
     const teamsRef = collection(db, 'teams');
     const q = query(teamsRef, orderBy('id'));
     
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const teams: Team[] = [];
-      snapshot.forEach((doc) => {
-        teams.push(doc.data() as Team);
+      querySnapshot.forEach((docSnapshot) => {
+        teams.push(docSnapshot.data() as Team);
       });
       callback(teams);
     });
@@ -145,9 +146,9 @@ export class GameStateManager {
   subscribeToCurrentQuestion(callback: (question: Question | null) => void): () => void {
     const gameStateRef = doc(db, 'gameState', 'current');
     
-    const unsubscribe = onSnapshot(gameStateRef, async (doc) => {
-      if (doc.exists()) {
-        const state = doc.data() as GameState;
+    const unsubscribe = onSnapshot(gameStateRef, async (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const state = docSnapshot.data() as GameState;
         if (state.currentQuestion) {
           const questionRef = doc(db, 'questions', state.currentQuestion);
           const questionDoc = await getDoc(questionRef);
@@ -246,11 +247,11 @@ export class GameStateManager {
   async getAudienceMembers(): Promise<AudienceMember[]> {
     const audienceRef = collection(db, 'audience');
     const q = query(audienceRef, orderBy('submittedAt', 'desc'));
-    const snapshot = await getDoc(q);
+    const querySnapshot = await getDocs(q);
     
     const members: AudienceMember[] = [];
-    snapshot.forEach((doc) => {
-      members.push({ id: doc.id, ...doc.data() } as AudienceMember);
+    querySnapshot.forEach((docSnapshot) => {
+      members.push({ id: docSnapshot.id, ...docSnapshot.data() } as AudienceMember);
     });
     
     return members;
@@ -312,8 +313,8 @@ export class GameStateManager {
 
     // Clear audience
     const audienceRef = collection(db, 'audience');
-    const audienceSnapshot = await getDoc(audienceRef);
-    const deletePromises = audienceSnapshot.docs.map(doc => deleteDoc(doc.ref));
+    const audienceSnapshot = await getDocs(audienceRef);
+    const deletePromises = audienceSnapshot.docs.map(docSnapshot => deleteDoc(docSnapshot.ref));
     await Promise.all(deletePromises);
   }
 

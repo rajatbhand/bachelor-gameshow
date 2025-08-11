@@ -8,7 +8,7 @@ export default function ControlPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
+
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {

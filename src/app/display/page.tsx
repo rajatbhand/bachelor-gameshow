@@ -7,7 +7,7 @@ export default function DisplayPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
-  const [scoreBump, setScoreBump] = useState<{ team: string; amount: number } | null>(null);
+  const [scoreBump] = useState<{ team: string; amount: number } | null>(null);
 
   useEffect(() => {
     // Initialize game

@@ -45,7 +45,7 @@ export default function AudiencePage() {
       
       setSubmitted(true);
       setFormData({ name: '', phone: '', team: '' });
-    } catch (error) {
+    } catch {
       setError('Failed to submit. Please try again.');
     } finally {
       setLoading(false);
