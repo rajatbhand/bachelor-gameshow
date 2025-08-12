@@ -278,12 +278,14 @@ export class GameStateManager {
       if (answerToHide && answerToHide.revealed && answerToHide.attribution) {
         const updatedAnswers = question.answers.map(answer => {
           if (answer.id === answerId) {
-            return {
+            const resetAnswer = {
               ...answer,
               revealed: false,
-              attribution: null,
-              revealedAt: undefined
+              attribution: null
             };
+            // Remove revealedAt field entirely instead of setting to undefined
+            delete (resetAnswer as any).revealedAt;
+            return resetAnswer;
           }
           return answer;
         });
@@ -422,12 +424,16 @@ export class GameStateManager {
     const questionsSnapshot = await getDocs(questionsRef);
     const questionUpdatePromises = questionsSnapshot.docs.map(async (docSnapshot) => {
       const question = docSnapshot.data() as Question;
-      const resetAnswers = question.answers.map(answer => ({
-        ...answer,
-        revealed: false,
-        attribution: null,
-        revealedAt: undefined
-      }));
+      const resetAnswers = question.answers.map(answer => {
+        const resetAnswer = {
+          ...answer,
+          revealed: false,
+          attribution: null
+        };
+        // Remove revealedAt field entirely instead of setting to undefined
+        delete (resetAnswer as any).revealedAt;
+        return resetAnswer;
+      });
       console.log(`GameStateManager: Resetting question ${question.id} with ${resetAnswers.length} answers`);
       return updateDoc(docSnapshot.ref, { answers: resetAnswers });
     });
