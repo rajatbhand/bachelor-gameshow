@@ -152,7 +152,11 @@ export default function ControlPage() {
     
     setLoading(true);
     try {
+      console.log('Control: Starting game reset...');
       await gameStateManager.resetGame();
+      
+      // Force clear current question state
+      setCurrentQuestion(null);
       
       // Refresh the loaded questions list after reset
       const { collection, getDocs } = await import('firebase/firestore');
@@ -167,6 +171,7 @@ export default function ControlPage() {
       });
       
       setLoadedQuestions(allQuestions);
+      console.log('Control: Game reset completed, questions refreshed');
     } catch (error) {
       console.error('Error resetting game:', error);
     } finally {

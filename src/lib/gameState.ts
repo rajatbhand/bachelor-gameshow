@@ -182,8 +182,10 @@ export class GameStateManager {
           const questionRef = doc(db, 'questions', state.currentQuestion);
           currentQuestionUnsubscribe = onSnapshot(questionRef, (questionDoc) => {
             if (questionDoc.exists()) {
-              console.log('GameStateManager: Question data received:', questionDoc.data()?.id);
-              callback(questionDoc.data() as Question);
+              const questionData = questionDoc.data() as Question;
+              console.log('GameStateManager: Question data received:', questionData.id);
+              console.log('GameStateManager: Question answers state:', questionData.answers.map(a => ({ id: a.id, revealed: a.revealed, attribution: a.attribution })));
+              callback(questionData);
             } else {
               console.log('GameStateManager: Question document does not exist');
               callback(null);
@@ -384,6 +386,17 @@ export class GameStateManager {
 
   // Reset game
   async resetGame(): Promise<void> {
+    console.log('GameStateManager: Starting game reset...');
+    
+    // Clear any cached question data first
+    this.listeners.forEach((unsubscribe, key) => {
+      if (key === 'currentQuestion') {
+        console.log('GameStateManager: Clearing current question listener');
+        unsubscribe();
+        this.listeners.delete(key);
+      }
+    });
+
     // Reset game state
     await this.updateGameState({
       currentRound: 'pre-show',
@@ -404,6 +417,7 @@ export class GameStateManager {
     }
 
     // Reset all questions - clear revealed answers
+    console.log('GameStateManager: Resetting all questions...');
     const questionsRef = collection(db, 'questions');
     const questionsSnapshot = await getDocs(questionsRef);
     const questionUpdatePromises = questionsSnapshot.docs.map(async (docSnapshot) => {
@@ -414,9 +428,11 @@ export class GameStateManager {
         attribution: null,
         revealedAt: undefined
       }));
+      console.log(`GameStateManager: Resetting question ${question.id} with ${resetAnswers.length} answers`);
       return updateDoc(docSnapshot.ref, { answers: resetAnswers });
     });
     await Promise.all(questionUpdatePromises);
+    console.log('GameStateManager: All questions reset completed');
 
     // Clear audience
     const audienceRef = collection(db, 'audience');
@@ -424,16 +440,10 @@ export class GameStateManager {
     const deletePromises = audienceSnapshot.docs.map(docSnapshot => deleteDoc(docSnapshot.ref));
     await Promise.all(deletePromises);
 
-    // Force refresh of current question listener by setting to null and back
-    await this.updateGameState({ currentQuestion: null });
+    // Force a small delay to ensure Firebase updates are processed
+    await new Promise(resolve => setTimeout(resolve, 500));
     
-    // Clear any cached question data
-    this.listeners.forEach((unsubscribe, key) => {
-      if (key === 'currentQuestion') {
-        unsubscribe();
-        this.listeners.delete(key);
-      }
-    });
+    console.log('GameStateManager: Game reset completed');
   }
 
   // Cleanup listeners
