@@ -424,8 +424,16 @@ export class GameStateManager {
     const deletePromises = audienceSnapshot.docs.map(docSnapshot => deleteDoc(docSnapshot.ref));
     await Promise.all(deletePromises);
 
-    // Force refresh of current question listener
+    // Force refresh of current question listener by setting to null and back
     await this.updateGameState({ currentQuestion: null });
+    
+    // Clear any cached question data
+    this.listeners.forEach((unsubscribe, key) => {
+      if (key === 'currentQuestion') {
+        unsubscribe();
+        this.listeners.delete(key);
+      }
+    });
   }
 
   // Cleanup listeners

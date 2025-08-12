@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
-import { bachelorQuestions, loadQuestionsToFirebase } from '../../lib/questions';
 
 export default function ControlPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -12,7 +11,7 @@ export default function ControlPage() {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [manualQuestion, setManualQuestion] = useState({
     text: '',
-    answers: Array(10).fill({ text: '', value: 0 })
+    answers: [{ text: '', value: 0 }]
   });
   const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
   const [loadedQuestions, setLoadedQuestions] = useState<Question[]>([]);
@@ -175,33 +174,6 @@ export default function ControlPage() {
     }
   };
 
-  const handleLoadQuestions = async () => {
-    setLoading(true);
-    try {
-      await loadQuestionsToFirebase();
-      
-      // Refresh the loaded questions list
-      const { collection, getDocs } = await import('firebase/firestore');
-      const { db } = await import('@/lib/firebase');
-      
-      const questionsRef = collection(db, 'questions');
-      const querySnapshot = await getDocs(questionsRef);
-      const questions: Question[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        questions.push(doc.data() as Question);
-      });
-      
-      setLoadedQuestions(questions);
-      alert('Questions loaded successfully!');
-    } catch (error) {
-      console.error('Error loading questions:', error);
-      alert('Error loading questions. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSelectQuestion = async (questionId: string) => {
     console.log('Control: Selecting question:', questionId);
     setLoading(true);
@@ -260,26 +232,26 @@ export default function ControlPage() {
         });
       }
       
-             // Load questions to Firebase
-       for (const question of questions) {
-         await gameStateManager.addQuestion(question);
-       }
-       
-       // Refresh the loaded questions list
-       const { collection, getDocs } = await import('firebase/firestore');
-       const { db } = await import('@/lib/firebase');
-       
-       const questionsRef = collection(db, 'questions');
-       const querySnapshot = await getDocs(questionsRef);
-       const allQuestions: Question[] = [];
-       
-       querySnapshot.forEach((doc) => {
-         allQuestions.push(doc.data() as Question);
-       });
-       
-       setLoadedQuestions(allQuestions);
-       alert(`Successfully loaded ${questions.length} questions!`);
-       setCsvFile(null);
+      // Load questions to Firebase
+      for (const question of questions) {
+        await gameStateManager.addQuestion(question);
+      }
+      
+      // Refresh the loaded questions list
+      const { collection, getDocs } = await import('firebase/firestore');
+      const { db } = await import('@/lib/firebase');
+      
+      const questionsRef = collection(db, 'questions');
+      const querySnapshot = await getDocs(questionsRef);
+      const allQuestions: Question[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        allQuestions.push(doc.data() as Question);
+      });
+      
+      setLoadedQuestions(allQuestions);
+      alert(`Successfully loaded ${questions.length} questions!`);
+      setCsvFile(null);
     } catch (error) {
       console.error('Error uploading CSV:', error);
       alert('Error uploading CSV. Please check the format.');
@@ -315,12 +287,26 @@ export default function ControlPage() {
       };
       
       await gameStateManager.addQuestion(question);
+      
+      // Refresh the loaded questions list
+      const { collection, getDocs } = await import('firebase/firestore');
+      const { db } = await import('@/lib/firebase');
+      
+      const questionsRef = collection(db, 'questions');
+      const querySnapshot = await getDocs(questionsRef);
+      const allQuestions: Question[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        allQuestions.push(doc.data() as Question);
+      });
+      
+      setLoadedQuestions(allQuestions);
       alert('Question added successfully!');
       
       // Reset form
       setManualQuestion({
         text: '',
-        answers: Array(10).fill({ text: '', value: 0 })
+        answers: [{ text: '', value: 0 }]
       });
     } catch (error) {
       console.error('Error adding manual question:', error);
@@ -330,6 +316,32 @@ export default function ControlPage() {
     }
   };
 
+  const addAnswerField = () => {
+    setManualQuestion({
+      ...manualQuestion,
+      answers: [...manualQuestion.answers, { text: '', value: 0 }]
+    });
+  };
+
+  const removeAnswerField = (index: number) => {
+    if (manualQuestion.answers.length > 1) {
+      const newAnswers = manualQuestion.answers.filter((_, i) => i !== index);
+      setManualQuestion({
+        ...manualQuestion,
+        answers: newAnswers
+      });
+    }
+  };
+
+  const updateAnswerField = (index: number, field: 'text' | 'value', value: string | number) => {
+    const newAnswers = [...manualQuestion.answers];
+    newAnswers[index] = { ...newAnswers[index], [field]: value };
+    setManualQuestion({
+      ...manualQuestion,
+      answers: newAnswers
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -337,35 +349,40 @@ export default function ControlPage() {
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Game Show Control Panel</h1>
           
-                     {/* Game State Overview */}
-           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-             <div className="text-center">
-               <div className="text-sm text-gray-600">Current Round</div>
-               <div className="text-xl font-bold">{gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}</div>
-             </div>
-             <div className="text-center">
-               <div className="text-sm text-gray-600">Big X</div>
-               <div className={`text-xl font-bold ${gameState?.bigX ? 'text-red-600' : 'text-gray-400'}`}>
-                 {gameState?.bigX ? 'ON' : 'OFF'}
-               </div>
-             </div>
-             <div className="text-center">
-               <div className="text-sm text-gray-600">Scorecard</div>
-               <div className={`text-xl font-bold ${gameState?.scorecardOverlay ? 'text-green-600' : 'text-gray-400'}`}>
-                 {gameState?.scorecardOverlay ? 'SHOWING' : 'HIDDEN'}
-               </div>
-             </div>
-           </div>
+          {/* Game State Overview */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Current Round</div>
+              <div className="text-xl font-bold">{gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Big X</div>
+              <div className={`text-xl font-bold ${gameState?.bigX ? 'text-red-600' : 'text-gray-400'}`}>
+                {gameState?.bigX ? 'ON' : 'OFF'}
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Scorecard</div>
+              <div className={`text-xl font-bold ${gameState?.scorecardOverlay ? 'text-green-600' : 'text-gray-400'}`}>
+                {gameState?.scorecardOverlay ? 'SHOWING' : 'HIDDEN'}
+              </div>
+            </div>
+          </div>
 
-          {/* Team Scores */}
+          {/* Team Scores and Audience Voting Combined */}
           <div className="grid grid-cols-3 gap-4">
             {teams.map((team) => (
               <div key={team.id} className="bg-gray-50 rounded-lg p-4">
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="font-bold" style={{ color: team.color }}>{team.name}</h3>
-                  <span className="text-sm text-gray-600">Dugout: {team.dugoutCount}</span>
+                  <span className="text-sm text-gray-600">
+                    Dugout: {team.dugoutCount} 
+                    {audienceMembers.length > 0 && (
+                      <span className="text-yellow-400"> ({audienceMembers.filter(m => m.team === team.id).length} votes)</span>
+                    )}
+                  </span>
                 </div>
-                <div className="text-2xl font-bold mb-2">₹{team.score.toLocaleString()}</div>
+                <div className="text-xl font-bold mb-2">₹{team.score.toLocaleString()}</div>
                 <div className="flex space-x-2">
                   <button
                     onClick={() => handleScoreChange(team.id, 100)}
@@ -387,132 +404,10 @@ export default function ControlPage() {
           </div>
         </div>
 
-        {/* Game Controls */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column - Game Controls */}
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - Question Management */}
           <div className="space-y-6">
-            
-
-            
-
-            {/* Overlay Controls */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Overlays</h2>
-              <div className="space-y-3">
-                <button
-                  onClick={() => handleUpdateGameState({ bigX: !gameState?.bigX })}
-                  className={`w-full p-3 rounded-lg font-bold ${
-                    gameState?.bigX ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'
-                  }`}
-                  disabled={loading}
-                >
-                  {gameState?.bigX ? 'HIDE BIG X' : 'SHOW BIG X'}
-                </button>
-                <button
-                  onClick={() => handleUpdateGameState({ scorecardOverlay: !gameState?.scorecardOverlay })}
-                  className={`w-full p-3 rounded-lg font-bold ${
-                    gameState?.scorecardOverlay ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'
-                  }`}
-                  disabled={loading}
-                >
-                  {gameState?.scorecardOverlay ? 'HIDE SCORECARD' : 'SHOW SCORECARD'}
-                </button>
-                <button
-                  onClick={() => handleUpdateGameState({ logoOnly: !gameState?.logoOnly })}
-                  className={`w-full p-3 rounded-lg font-bold ${
-                    gameState?.logoOnly ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-700'
-                  }`}
-                  disabled={loading}
-                >
-                  {gameState?.logoOnly ? 'HIDE LOGO' : 'SHOW LOGO'}
-                </button>
-              </div>
-            </div>
-
-                         {/* Audience Control */}
-             <div className="bg-white rounded-lg shadow-md p-6">
-               <h2 className="text-xl font-bold mb-4">Audience Voting</h2>
-               <button
-                 onClick={() => handleUpdateGameState({ audienceWindow: !gameState?.audienceWindow })}
-                 className={`w-full p-3 rounded-lg font-bold ${
-                   gameState?.audienceWindow ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'
-                 }`}
-                 disabled={loading}
-               >
-                 {gameState?.audienceWindow ? 'CLOSE VOTING' : 'OPEN VOTING'}
-               </button>
-               
-               {/* Voting Results */}
-               <div className="mt-4">
-                 <h3 className="font-bold text-sm text-gray-700 mb-2">Voting Results:</h3>
-                 <div className="grid grid-cols-3 gap-2 text-sm">
-                   <div className="text-center">
-                     <div className="font-bold text-red-600">Red</div>
-                     <div>{audienceMembers.filter(m => m.team === 'red').length} votes</div>
-                   </div>
-                   <div className="text-center">
-                     <div className="font-bold text-green-600">Green</div>
-                     <div>{audienceMembers.filter(m => m.team === 'green').length} votes</div>
-                   </div>
-                   <div className="text-center">
-                     <div className="font-bold text-blue-600">Blue</div>
-                     <div>{audienceMembers.filter(m => m.team === 'blue').length} votes</div>
-                   </div>
-                 </div>
-                 <div className="text-xs text-gray-500 mt-2">
-                   Total: {audienceMembers.length} submissions
-                 </div>
-               </div>
-             </div>
-
-            {/* Round 2 Bonus */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Round 2 Bonus</h2>
-              <button
-                onClick={handleApplyRound2Bonus}
-                className="w-full p-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700"
-                disabled={loading || gameState?.round2BonusApplied}
-              >
-                {gameState?.round2BonusApplied ? 'BONUS APPLIED' : 'APPLY ROUND 2 BONUS'}
-              </button>
-            </div>
-
-            {/* Load Questions */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Load Questions</h2>
-              <button
-                onClick={handleLoadQuestions}
-                className="w-full p-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 mb-3"
-                disabled={loading}
-              >
-                LOAD BACHELOR QUESTIONS
-              </button>
-              
-                             <div className="space-y-2">
-                 {loadedQuestions.length > 0 ? (
-                   loadedQuestions.map((question) => (
-                     <button
-                       key={question.id}
-                       onClick={() => handleSelectQuestion(question.id)}
-                       className={`w-full p-2 text-left rounded border ${
-                         gameState?.currentQuestion === question.id
-                           ? 'bg-blue-100 border-blue-500'
-                           : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
-                       }`}
-                       disabled={loading}
-                     >
-                       <div className="font-bold text-sm">{question.id}</div>
-                       <div className="text-xs text-gray-600 truncate">{question.text}</div>
-                     </button>
-                   ))
-                 ) : (
-                   <div className="text-center py-4 text-gray-500">
-                     No questions loaded yet. Use "LOAD BACHELOR QUESTIONS" or upload CSV.
-                   </div>
-                 )}
-               </div>
-            </div>
-
             {/* CSV Upload */}
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold mb-4">Upload CSV Questions</h2>
@@ -553,26 +448,31 @@ export default function ControlPage() {
                       type="text"
                       placeholder={`Answer ${index + 1}`}
                       value={answer.text}
-                      onChange={(e) => {
-                        const newAnswers = [...manualQuestion.answers];
-                        newAnswers[index] = { ...newAnswers[index], text: e.target.value };
-                        setManualQuestion({...manualQuestion, answers: newAnswers});
-                      }}
+                      onChange={(e) => updateAnswerField(index, 'text', e.target.value)}
                       className="flex-1 p-2 border rounded"
                     />
                     <input
                       type="number"
-                      placeholder="Value"
+                      placeholder="Amount"
                       value={answer.value}
-                      onChange={(e) => {
-                        const newAnswers = [...manualQuestion.answers];
-                        newAnswers[index] = { ...newAnswers[index], value: parseInt(e.target.value) || 0 };
-                        setManualQuestion({...manualQuestion, answers: newAnswers});
-                      }}
+                      onChange={(e) => updateAnswerField(index, 'value', parseInt(e.target.value) || 0)}
                       className="w-20 p-2 border rounded"
                     />
+                    <button
+                      onClick={() => removeAnswerField(index)}
+                      className="bg-red-500 text-white px-2 py-1 rounded text-sm hover:bg-red-600"
+                      disabled={manualQuestion.answers.length <= 1}
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
+                <button
+                  onClick={addAnswerField}
+                  className="w-full p-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                >
+                  + Add Answer
+                </button>
                 <button
                   onClick={handleAddManualQuestion}
                   className="w-full p-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700"
@@ -583,20 +483,36 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* Reset Game */}
+            {/* Loaded Questions */}
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Game Reset</h2>
-              <button
-                onClick={handleResetGame}
-                className="w-full p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
-                disabled={loading}
-              >
-                RESET ENTIRE GAME
-              </button>
+              <h2 className="text-xl font-bold mb-4">Question Bank</h2>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {loadedQuestions.length > 0 ? (
+                  loadedQuestions.map((question) => (
+                    <button
+                      key={question.id}
+                      onClick={() => handleSelectQuestion(question.id)}
+                      className={`w-full p-2 text-left rounded border ${
+                        gameState?.currentQuestion === question.id
+                          ? 'bg-blue-100 border-blue-500'
+                          : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
+                      }`}
+                      disabled={loading}
+                    >
+                      <div className="font-bold text-sm">{question.id}</div>
+                      <div className="text-xs text-gray-600 truncate">{question.text}</div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-center py-4 text-gray-500">
+                    No questions loaded yet. Upload CSV or add manually.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Right Column - Question and Answers */}
+          {/* Middle Column - Current Question and Answers */}
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-xl font-bold mb-4">Current Question</h2>
             
@@ -656,6 +572,95 @@ export default function ControlPage() {
                 No question selected
               </div>
             )}
+          </div>
+
+          {/* Right Column - Controls and Overlays */}
+          <div className="space-y-6">
+            {/* Overlay Controls */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Overlays</h2>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Big X</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={gameState?.bigX || false}
+                      onChange={() => handleUpdateGameState({ bigX: !gameState?.bigX })}
+                      className="sr-only peer"
+                      disabled={loading}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                  </label>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Logo</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={gameState?.logoOnly || false}
+                      onChange={() => handleUpdateGameState({ logoOnly: !gameState?.logoOnly })}
+                      className="sr-only peer"
+                      disabled={loading}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Scorecard</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={gameState?.scorecardOverlay || false}
+                      onChange={() => handleUpdateGameState({ scorecardOverlay: !gameState?.scorecardOverlay })}
+                      className="sr-only peer"
+                      disabled={loading}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                  </label>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Audience Voting</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={gameState?.audienceWindow || false}
+                      onChange={() => handleUpdateGameState({ audienceWindow: !gameState?.audienceWindow })}
+                      className="sr-only peer"
+                      disabled={loading}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Round 2 Bonus */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Round 2 Bonus</h2>
+              <button
+                onClick={handleApplyRound2Bonus}
+                className="w-full p-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700"
+                disabled={loading || gameState?.round2BonusApplied}
+              >
+                {gameState?.round2BonusApplied ? 'BONUS APPLIED' : 'APPLY ROUND 2 BONUS'}
+              </button>
+            </div>
+
+            {/* Reset Game */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Game Reset</h2>
+              <button
+                onClick={handleResetGame}
+                className="w-full p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
+                disabled={loading}
+              >
+                RESET ENTIRE GAME
+              </button>
+            </div>
           </div>
         </div>
 
