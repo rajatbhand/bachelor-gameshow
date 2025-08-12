@@ -15,6 +15,7 @@ export default function ControlPage() {
     answers: Array(10).fill({ text: '', value: 0 })
   });
   const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
+  const [loadedQuestions, setLoadedQuestions] = useState<Question[]>([]);
 
   useEffect(() => {
     console.log('Control page: Initializing...');
@@ -47,6 +48,28 @@ export default function ControlPage() {
       console.log('Control page: Audience members updated:', members);
       setAudienceMembers(members);
     });
+
+    // Load initial questions from Firebase
+    const loadQuestionsFromFirebase = async () => {
+      try {
+        const { collection, getDocs } = await import('firebase/firestore');
+        const { db } = await import('@/lib/firebase');
+        
+        const questionsRef = collection(db, 'questions');
+        const querySnapshot = await getDocs(questionsRef);
+        const questions: Question[] = [];
+        
+        querySnapshot.forEach((doc) => {
+          questions.push(doc.data() as Question);
+        });
+        
+        setLoadedQuestions(questions);
+      } catch (error) {
+        console.error('Error loading questions from Firebase:', error);
+      }
+    };
+    
+    loadQuestionsFromFirebase();
 
     return () => {
       unsubscribeGameState();
@@ -131,6 +154,20 @@ export default function ControlPage() {
     setLoading(true);
     try {
       await gameStateManager.resetGame();
+      
+      // Refresh the loaded questions list after reset
+      const { collection, getDocs } = await import('firebase/firestore');
+      const { db } = await import('@/lib/firebase');
+      
+      const questionsRef = collection(db, 'questions');
+      const querySnapshot = await getDocs(questionsRef);
+      const allQuestions: Question[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        allQuestions.push(doc.data() as Question);
+      });
+      
+      setLoadedQuestions(allQuestions);
     } catch (error) {
       console.error('Error resetting game:', error);
     } finally {
@@ -142,6 +179,20 @@ export default function ControlPage() {
     setLoading(true);
     try {
       await loadQuestionsToFirebase();
+      
+      // Refresh the loaded questions list
+      const { collection, getDocs } = await import('firebase/firestore');
+      const { db } = await import('@/lib/firebase');
+      
+      const questionsRef = collection(db, 'questions');
+      const querySnapshot = await getDocs(questionsRef);
+      const questions: Question[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        questions.push(doc.data() as Question);
+      });
+      
+      setLoadedQuestions(questions);
       alert('Questions loaded successfully!');
     } catch (error) {
       console.error('Error loading questions:', error);
@@ -209,13 +260,26 @@ export default function ControlPage() {
         });
       }
       
-      // Load questions to Firebase
-      for (const question of questions) {
-        await gameStateManager.addQuestion(question);
-      }
-      
-      alert(`Successfully loaded ${questions.length} questions!`);
-      setCsvFile(null);
+             // Load questions to Firebase
+       for (const question of questions) {
+         await gameStateManager.addQuestion(question);
+       }
+       
+       // Refresh the loaded questions list
+       const { collection, getDocs } = await import('firebase/firestore');
+       const { db } = await import('@/lib/firebase');
+       
+       const questionsRef = collection(db, 'questions');
+       const querySnapshot = await getDocs(questionsRef);
+       const allQuestions: Question[] = [];
+       
+       querySnapshot.forEach((doc) => {
+         allQuestions.push(doc.data() as Question);
+       });
+       
+       setLoadedQuestions(allQuestions);
+       alert(`Successfully loaded ${questions.length} questions!`);
+       setCsvFile(null);
     } catch (error) {
       console.error('Error uploading CSV:', error);
       alert('Error uploading CSV. Please check the format.');
@@ -424,23 +488,29 @@ export default function ControlPage() {
                 LOAD BACHELOR QUESTIONS
               </button>
               
-              <div className="space-y-2">
-                {bachelorQuestions.map((question) => (
-                  <button
-                    key={question.id}
-                    onClick={() => handleSelectQuestion(question.id)}
-                    className={`w-full p-2 text-left rounded border ${
-                      gameState?.currentQuestion === question.id
-                        ? 'bg-blue-100 border-blue-500'
-                        : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
-                    }`}
-                    disabled={loading}
-                  >
-                    <div className="font-bold text-sm">{question.id}</div>
-                    <div className="text-xs text-gray-600 truncate">{question.text}</div>
-                  </button>
-                ))}
-              </div>
+                             <div className="space-y-2">
+                 {loadedQuestions.length > 0 ? (
+                   loadedQuestions.map((question) => (
+                     <button
+                       key={question.id}
+                       onClick={() => handleSelectQuestion(question.id)}
+                       className={`w-full p-2 text-left rounded border ${
+                         gameState?.currentQuestion === question.id
+                           ? 'bg-blue-100 border-blue-500'
+                           : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
+                       }`}
+                       disabled={loading}
+                     >
+                       <div className="font-bold text-sm">{question.id}</div>
+                       <div className="text-xs text-gray-600 truncate">{question.text}</div>
+                     </button>
+                   ))
+                 ) : (
+                   <div className="text-center py-4 text-gray-500">
+                     No questions loaded yet. Use "LOAD BACHELOR QUESTIONS" or upload CSV.
+                   </div>
+                 )}
+               </div>
             </div>
 
             {/* CSV Upload */}
