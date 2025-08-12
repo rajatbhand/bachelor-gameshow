@@ -136,9 +136,11 @@ export default function ControlPage() {
   };
 
   const handleSelectQuestion = async (questionId: string) => {
+    console.log('Control: Selecting question:', questionId);
     setLoading(true);
     try {
       await gameStateManager.updateGameState({ currentQuestion: questionId });
+      console.log('Control: Question selected successfully');
     } catch (error) {
       console.error('Error selecting question:', error);
     } finally {

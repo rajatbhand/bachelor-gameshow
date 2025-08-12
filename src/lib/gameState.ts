@@ -145,31 +145,52 @@ export class GameStateManager {
   // Listen to current question and answers
   subscribeToCurrentQuestion(callback: (question: Question | null) => void): () => void {
     const gameStateRef = doc(db, 'gameState', 'current');
+    let currentQuestionUnsubscribe: (() => void) | null = null;
     
     const unsubscribe = onSnapshot(gameStateRef, async (docSnapshot) => {
       if (docSnapshot.exists()) {
         const state = docSnapshot.data() as GameState;
+        console.log('GameStateManager: Current question changed to:', state.currentQuestion);
+        
+        // Clean up previous question listener if it exists
+        if (currentQuestionUnsubscribe) {
+          console.log('GameStateManager: Cleaning up previous question listener');
+          currentQuestionUnsubscribe();
+          currentQuestionUnsubscribe = null;
+        }
+        
         if (state.currentQuestion) {
+          console.log('GameStateManager: Setting up new question listener for:', state.currentQuestion);
           // Listen to the specific question document for real-time updates
           const questionRef = doc(db, 'questions', state.currentQuestion);
-          const questionUnsubscribe = onSnapshot(questionRef, (questionDoc) => {
+          currentQuestionUnsubscribe = onSnapshot(questionRef, (questionDoc) => {
             if (questionDoc.exists()) {
+              console.log('GameStateManager: Question data received:', questionDoc.data()?.id);
               callback(questionDoc.data() as Question);
             } else {
+              console.log('GameStateManager: Question document does not exist');
               callback(null);
             }
           });
           
           // Store the question listener for cleanup
-          this.listeners.set('currentQuestion', questionUnsubscribe);
+          this.listeners.set('currentQuestion', currentQuestionUnsubscribe);
         } else {
+          console.log('GameStateManager: No current question, calling callback with null');
           callback(null);
         }
       }
     });
 
     this.listeners.set('gameState', unsubscribe);
-    return unsubscribe;
+    
+    // Return cleanup function that handles both listeners
+    return () => {
+      if (currentQuestionUnsubscribe) {
+        currentQuestionUnsubscribe();
+      }
+      unsubscribe();
+    };
   }
 
   // Update game state

@@ -31,7 +31,7 @@ export default function DisplayPage() {
     });
     
     const unsubscribeQuestion = gameStateManager.subscribeToCurrentQuestion((question) => {
-      console.log('Display page: Question updated:', question);
+      console.log('Display page: Question updated:', question?.id, question?.text);
       console.log('Display page: Question answers:', question?.answers?.map(a => ({ id: a.id, revealed: a.revealed, attribution: a.attribution })));
       setCurrentQuestion(question);
     });
