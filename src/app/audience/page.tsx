@@ -18,7 +18,21 @@ export default function AudiencePage() {
 
   useEffect(() => {
     // Subscribe to game state to check if voting is open
-    const unsubscribeGameState = gameStateManager.subscribeToGameState(setGameState);
+    const unsubscribeGameState = gameStateManager.subscribeToGameState((state) => {
+      setGameState(state);
+      
+      // If voting reopens, clear the device vote to allow revoting
+      if (state?.audienceWindow) {
+        const hasVoted = localStorage.getItem('bachelor-gameshow-voted');
+        if (hasVoted) {
+          localStorage.removeItem('bachelor-gameshow-voted');
+          setDeviceVoted(false);
+          setSubmitted(false);
+          setSubmittedTeam(null);
+          setFormData({ name: '', phone: '', team: '' });
+        }
+      }
+    });
     
     // Check if this device has already voted
     const hasVoted = localStorage.getItem('bachelor-gameshow-voted');
@@ -79,13 +93,7 @@ export default function AudiencePage() {
     setFormData({ name: '', phone: '', team: '' });
   };
 
-  const clearDeviceVote = () => {
-    localStorage.removeItem('bachelor-gameshow-voted');
-    setDeviceVoted(false);
-    setSubmitted(false);
-    setSubmittedTeam(null);
-    setFormData({ name: '', phone: '', team: '' });
-  };
+
 
   // Show team color background after submission
   if (submitted && submittedTeam) {
@@ -103,26 +111,14 @@ export default function AudiencePage() {
           <p className="text-gray-600 mb-6">
             Your team selection has been submitted successfully.
           </p>
-          {deviceVoted ? (
-            <div className="space-y-3">
-              <p className="text-sm text-gray-600">
-                You have already voted from this device.
-              </p>
-              <button
-                onClick={clearDeviceVote}
-                className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700"
-              >
-                Clear Device Vote
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={handleSubmitAnother}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700"
-            >
-              Submit Another Vote
-            </button>
-          )}
+                     <div className="space-y-3">
+             <p className="text-sm text-gray-600">
+               You have already voted from this device.
+             </p>
+             <p className="text-xs text-gray-500">
+               You can vote again when voting reopens.
+             </p>
+           </div>
         </div>
       </div>
     );
@@ -133,7 +129,14 @@ export default function AudiencePage() {
       <div className="bg-white rounded-lg p-6 max-w-md w-full">
         {/* Header */}
         <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">BACHELOR GAME SHOW</h1>
+          <div className="mb-4">
+            <img 
+              src="/WhatsApp Image 2025-08-12 at 15.56.07_32a23c23.jpg" 
+              alt="Akal Ke Ghode Logo" 
+              className="w-24 h-24 mx-auto rounded-lg shadow-md"
+            />
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">AKAL KE GHODE</h1>
           <p className="text-gray-600">Choose Your Team</p>
         </div>
 

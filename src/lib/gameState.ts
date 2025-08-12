@@ -24,6 +24,9 @@ export interface GameState {
   audienceWindow: boolean;
   round2BonusApplied: boolean;
   logoOnly: boolean;
+  questionRevealed: boolean;
+  revealMode: 'one-by-one' | 'all-at-once';
+  guessMode: boolean;
   lastUpdated: unknown;
 }
 
@@ -86,6 +89,9 @@ export class GameStateManager {
         audienceWindow: false,
         round2BonusApplied: false,
         logoOnly: true,
+        questionRevealed: false,
+        revealMode: 'one-by-one',
+        guessMode: false,
         lastUpdated: serverTimestamp()
       };
       
@@ -235,7 +241,7 @@ export class GameStateManager {
   }
 
   // Reveal answer
-  async revealAnswer(questionId: string, answerId: string, attribution: 'red' | 'green' | 'blue' | 'host' | 'neutral'): Promise<void> {
+  async revealAnswer(questionId: string, answerId: string, attribution: 'red' | 'green' | 'blue' | 'host' | 'neutral', manualAmount?: number): Promise<void> {
     const questionRef = doc(db, 'questions', questionId);
     const questionDoc = await getDoc(questionRef);
     
@@ -244,13 +250,17 @@ export class GameStateManager {
       const answerToReveal = question.answers.find(answer => answer.id === answerId);
       
       if (answerToReveal) {
+        // Use manual amount if provided, otherwise use original value
+        const finalValue = manualAmount !== undefined ? manualAmount : answerToReveal.value;
+        
         const updatedAnswers = question.answers.map(answer => {
           if (answer.id === answerId) {
             return {
               ...answer,
               revealed: true,
               attribution,
-              revealedAt: new Date().toISOString()
+              revealedAt: new Date().toISOString(),
+              value: finalValue // Update the value if manual amount is provided
             };
           }
           return answer;
@@ -260,7 +270,7 @@ export class GameStateManager {
         
         // Add score to team if it's a team attribution (not host or neutral)
         if (attribution === 'red' || attribution === 'green' || attribution === 'blue') {
-          await this.updateTeamScore(attribution, answerToReveal.value);
+          await this.updateTeamScore(attribution, finalValue);
         }
       }
     }
@@ -386,6 +396,48 @@ export class GameStateManager {
     await setDoc(questionRef, question);
   }
 
+  // Reveal all answers at once
+  async revealAllAnswers(questionId: string): Promise<void> {
+    const questionRef = doc(db, 'questions', questionId);
+    const questionDoc = await getDoc(questionRef);
+    
+    if (questionDoc.exists()) {
+      const question = questionDoc.data() as Question;
+      
+      const updatedAnswers = question.answers.map(answer => ({
+        ...answer,
+        revealed: true,
+        attribution: 'neutral',
+        revealedAt: new Date().toISOString()
+      }));
+      
+      await updateDoc(questionRef, { answers: updatedAnswers });
+    }
+  }
+
+  // Hide all answers
+  async hideAllAnswers(questionId: string): Promise<void> {
+    const questionRef = doc(db, 'questions', questionId);
+    const questionDoc = await getDoc(questionRef);
+    
+    if (questionDoc.exists()) {
+      const question = questionDoc.data() as Question;
+      
+      const updatedAnswers = question.answers.map(answer => {
+        const resetAnswer = {
+          ...answer,
+          revealed: false,
+          attribution: null
+        };
+        // Remove revealedAt field entirely instead of setting to undefined
+        delete (resetAnswer as any).revealedAt;
+        return resetAnswer;
+      });
+      
+      await updateDoc(questionRef, { answers: updatedAnswers });
+    }
+  }
+
   // Reset game
   async resetGame(): Promise<void> {
     console.log('GameStateManager: Starting game reset...');
@@ -408,7 +460,10 @@ export class GameStateManager {
       scorecardOverlay: false,
       audienceWindow: false,
       round2BonusApplied: false,
-      logoOnly: true
+      logoOnly: true,
+      questionRevealed: false,
+      revealMode: 'one-by-one',
+      guessMode: false
     });
 
     // Reset team scores

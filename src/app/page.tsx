@@ -4,7 +4,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg p-8 max-w-2xl w-full text-center">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">BACHELOR GAME SHOW</h1>
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">AKAL KE GHODE</h1>
         <p className="text-gray-600 mb-8">Welcome to the game show control system</p>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

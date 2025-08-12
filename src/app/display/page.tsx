@@ -46,8 +46,11 @@ export default function DisplayPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-8xl font-bold text-white mb-4">BACHELOR GAME SHOW</h1>
-          <p className="text-2xl text-gray-300">Get Ready for the Fun!</p>
+          <img 
+            src="/WhatsApp Image 2025-08-12 at 15.56.07_32a23c23.jpg" 
+            alt="Akal Ke Ghode Logo" 
+            className="w-96 h-96 mx-auto rounded-lg shadow-lg"
+          />
         </div>
       </div>
     );
@@ -105,47 +108,82 @@ export default function DisplayPage() {
          )}
        </div>
 
-      {/* Main Content */}
-      <div className="p-8">
-        {currentQuestion ? (
-          <div className="max-w-6xl mx-auto">
-            {/* Question */}
-            <div className="bg-gray-800 rounded-lg p-6 mb-8">
-              <h2 className="text-3xl font-bold text-center mb-4">{currentQuestion.text}</h2>
-            </div>
-
-            {/* Answers Grid */}
-            <div className="grid grid-cols-3 gap-4">
-              {currentQuestion.answers.slice(0, currentQuestion.answerCount).map((answer, index) => (
-                <div
-                  key={answer.id}
-                  className={`relative h-32 rounded-lg border-4 transition-all duration-300 ${
-                    answer.revealed
-                      ? 'bg-white text-black'
-                      : 'bg-gray-700 border-gray-600'
-                  }`}
-                  style={{
-                    borderColor: answer.revealed 
-                      ? (answer.attribution === 'red' ? '#ef4444' : 
-                         answer.attribution === 'green' ? '#22c55e' : 
-                         answer.attribution === 'blue' ? '#3b82f6' : 
-                         answer.attribution === 'host' ? '#6b7280' : '#6b7280')
-                      : '#4b5563'
-                  }}
-                >
-                  <div className="absolute inset-0 flex items-center justify-center p-4">
-                    {answer.revealed ? (
+             {/* Main Content */}
+       <div className="p-8">
+         {currentQuestion ? (
+           <div className="max-w-6xl mx-auto">
+             {/* Question */}
+             <div className="bg-gray-800 rounded-lg p-6 mb-8">
+               {gameState?.questionRevealed ? (
+                 <>
+                   <h2 className="text-3xl font-bold text-center mb-4">{currentQuestion.text}</h2>
+                   
+                                       {/* Guess Mode Indicator - Only show when in guess mode */}
+                    {gameState?.revealMode === 'all-at-once' && gameState?.guessMode && (
                       <div className="text-center">
-                        <div className="text-2xl font-bold">{answer.text}</div>
-                        <div className="text-lg font-semibold">₹{answer.value.toLocaleString()}</div>
+                        <div className="inline-flex items-center space-x-4 bg-gray-700 rounded-lg px-4 py-2">
+                          <span className="text-sm text-yellow-400 font-bold">
+                            🎯 GUESS THE QUESTION
+                          </span>
+                        </div>
                       </div>
+                    )}
+                 </>
+                               ) : (
+                  <div className="text-center">
+                    {gameState?.revealMode === 'all-at-once' && gameState?.guessMode ? (
+                      <>
+                        <div className="text-6xl font-bold text-yellow-400 mb-4">🎯</div>
+                        <h2 className="text-2xl text-yellow-300">Guess the Question!</h2>
+                        <p className="text-lg text-gray-400 mt-2">Look at the answers below and try to guess what the question is</p>
+                      </>
                     ) : (
-                      <div className="text-4xl font-bold text-gray-400">?</div>
+                      <>
+                        <div className="text-6xl font-bold text-gray-400 mb-4">?</div>
+                        <h2 className="text-2xl text-gray-300">Question Hidden</h2>
+                        <p className="text-lg text-gray-400 mt-2">Operator will reveal question or answers</p>
+                      </>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
+                )}
+             </div>
+
+                         {/* Answers Grid */}
+             {(gameState?.questionRevealed || (gameState?.revealMode === 'all-at-once' && gameState?.guessMode)) && (
+               <div className="grid grid-cols-3 gap-4">
+                 {currentQuestion.answers.slice(0, currentQuestion.answerCount).map((answer, index) => (
+                   <div
+                     key={answer.id}
+                     className={`relative h-32 rounded-lg border-4 transition-all duration-300 ${
+                       answer.revealed
+                         ? 'bg-white text-black'
+                         : 'bg-gray-700 border-gray-600'
+                     }`}
+                     style={{
+                       borderColor: answer.revealed 
+                         ? (gameState?.revealMode === 'all-at-once' 
+                             ? '#6b7280' // Neutral gray for all-at-once mode
+                             : (answer.attribution === 'red' ? '#ef4444' : 
+                                answer.attribution === 'green' ? '#22c55e' : 
+                                answer.attribution === 'blue' ? '#3b82f6' : 
+                                answer.attribution === 'host' ? '#6b7280' : '#6b7280'))
+                         : '#4b5563'
+                     }}
+                   >
+                     <div className="absolute inset-0 flex items-center justify-center p-4">
+                                               {answer.revealed ? (
+                          <div className="text-center">
+                            <div className="text-2xl font-bold">{answer.text}</div>
+                            <div className="text-lg font-semibold">₹{answer.value.toLocaleString()}</div>
+                          </div>
+                        ) : (
+                         <div className="text-4xl font-bold text-gray-400">?</div>
+                       )}
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             )}
           </div>
         ) : (
           <div className="text-center">

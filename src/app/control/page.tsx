@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
 
 export default function ControlPage() {
@@ -15,6 +15,78 @@ export default function ControlPage() {
   });
   const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
   const [loadedQuestions, setLoadedQuestions] = useState<Question[]>([]);
+  const [manualAmounts, setManualAmounts] = useState<{ [key: string]: number }>({});
+
+  // Audio refs
+  const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
+  const teamAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const hostAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Audio state
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [audioVolume, setAudioVolume] = useState(0.7);
+
+  // Initialize audio elements
+  useEffect(() => {
+    bigXAudioRef.current = new Audio('/sounds/big-x.mp3');
+    teamAnswerAudioRef.current = new Audio('/sounds/team-answer-reveal.mp3');
+    hostAnswerAudioRef.current = new Audio('/sounds/host-answer-reveal.mp3');
+
+    // Set initial volume
+    if (bigXAudioRef.current) bigXAudioRef.current.volume = audioVolume;
+    if (teamAnswerAudioRef.current) teamAnswerAudioRef.current.volume = audioVolume;
+    if (hostAnswerAudioRef.current) hostAnswerAudioRef.current.volume = audioVolume;
+
+    // Preload audio files
+    const preloadAudio = async () => {
+      try {
+        if (bigXAudioRef.current) await bigXAudioRef.current.load();
+        if (teamAnswerAudioRef.current) await teamAnswerAudioRef.current.load();
+        if (hostAnswerAudioRef.current) await hostAnswerAudioRef.current.load();
+      } catch (error) {
+        console.log('Audio files not found yet - will play when provided');
+      }
+    };
+    preloadAudio();
+  }, []);
+
+  // Update volume when it changes
+  useEffect(() => {
+    if (bigXAudioRef.current) bigXAudioRef.current.volume = audioVolume;
+    if (teamAnswerAudioRef.current) teamAnswerAudioRef.current.volume = audioVolume;
+    if (hostAnswerAudioRef.current) hostAnswerAudioRef.current.volume = audioVolume;
+  }, [audioVolume]);
+
+  // Audio playing functions
+  const playBigXSound = async () => {
+    if (!audioEnabled || !bigXAudioRef.current) return;
+    try {
+      bigXAudioRef.current.currentTime = 0;
+      await bigXAudioRef.current.play();
+    } catch (error) {
+      console.log('Could not play Big X sound:', error);
+    }
+  };
+
+  const playTeamAnswerSound = async () => {
+    if (!audioEnabled || !teamAnswerAudioRef.current) return;
+    try {
+      teamAnswerAudioRef.current.currentTime = 0;
+      await teamAnswerAudioRef.current.play();
+    } catch (error) {
+      console.log('Could not play team answer sound:', error);
+    }
+  };
+
+  const playHostAnswerSound = async () => {
+    if (!audioEnabled || !hostAnswerAudioRef.current) return;
+    try {
+      hostAnswerAudioRef.current.currentTime = 0;
+      await hostAnswerAudioRef.current.play();
+    } catch (error) {
+      console.log('Could not play host answer sound:', error);
+    }
+  };
 
   useEffect(() => {
     console.log('Control page: Initializing...');
@@ -82,6 +154,11 @@ export default function ControlPage() {
     setLoading(true);
     try {
       await gameStateManager.updateGameState(updates);
+      
+      // Play Big X sound when toggling
+      if (updates.bigX !== undefined && updates.bigX) {
+        await playBigXSound();
+      }
       
       // If closing audience window, update voting results
       if (updates.audienceWindow === false) {
@@ -183,7 +260,13 @@ export default function ControlPage() {
     console.log('Control: Selecting question:', questionId);
     setLoading(true);
     try {
-      await gameStateManager.updateGameState({ currentQuestion: questionId });
+      // When selecting a question, reset to initial state
+      await gameStateManager.updateGameState({ 
+        currentQuestion: questionId,
+        questionRevealed: false,
+        revealMode: 'one-by-one',
+        guessMode: false
+      });
       console.log('Control: Question selected successfully');
     } catch (error) {
       console.error('Error selecting question:', error);
@@ -347,6 +430,66 @@ export default function ControlPage() {
     });
   };
 
+  const handleManualAmountChange = (answerId: string, amount: number) => {
+    setManualAmounts(prev => ({
+      ...prev,
+      [answerId]: amount
+    }));
+  };
+
+  const handleRevealAnswerWithAmount = async (answerId: string, attribution: 'red' | 'green' | 'blue' | 'host' | 'neutral') => {
+    if (!currentQuestion) return;
+    
+    console.log('Control: Revealing answer:', answerId, 'with attribution:', attribution);
+    setLoading(true);
+    try {
+      // Get the manual amount for this answer, or use the original value
+      const manualAmount = manualAmounts[answerId] || 0;
+      
+      await gameStateManager.revealAnswer(currentQuestion.id, answerId, attribution, manualAmount);
+      console.log('Control: Answer revealed successfully');
+      
+      // Play appropriate sound based on attribution
+      if (attribution === 'host') {
+        await playHostAnswerSound();
+      } else if (['red', 'green', 'blue'].includes(attribution)) {
+        await playTeamAnswerSound();
+      }
+    } catch (error) {
+      console.error('Error revealing answer:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRevealAllAnswers = async () => {
+    if (!currentQuestion) return;
+    
+    setLoading(true);
+    try {
+      await gameStateManager.revealAllAnswers(currentQuestion.id);
+      console.log('Control: All answers revealed successfully');
+    } catch (error) {
+      console.error('Error revealing all answers:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleHideAllAnswers = async () => {
+    if (!currentQuestion) return;
+    
+    setLoading(true);
+    try {
+      await gameStateManager.hideAllAnswers(currentQuestion.id);
+      console.log('Control: All answers hidden successfully');
+    } catch (error) {
+      console.error('Error hiding all answers:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -381,10 +524,7 @@ export default function ControlPage() {
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="font-bold" style={{ color: team.color }}>{team.name}</h3>
                   <span className="text-sm text-gray-600">
-                    Dugout: {team.dugoutCount} 
-                    {audienceMembers.length > 0 && (
-                      <span className="text-yellow-400"> ({audienceMembers.filter(m => m.team === team.id).length} votes)</span>
-                    )}
+                    Dugout: {team.dugoutCount + (audienceMembers.filter(m => m.team === team.id).length)}
                   </span>
                 </div>
                 <div className="text-xl font-bold mb-2">₹{team.score.toLocaleString()}</div>
@@ -533,6 +673,140 @@ export default function ControlPage() {
               <div>
                 <div className="bg-gray-50 rounded-lg p-4 mb-4">
                   <h3 className="font-bold text-lg mb-2">{currentQuestion.text}</h3>
+                  
+                                     {/* Question Reveal Controls */}
+                   {!gameState?.questionRevealed ? (
+                     <div className="mt-4 space-y-3">
+                       <div className="text-sm text-gray-600 mb-3">
+                         Question is hidden on display. Choose how to proceed:
+                       </div>
+                       <div className="flex space-x-2">
+                         <button
+                           onClick={() => handleUpdateGameState({ 
+                             questionRevealed: true, 
+                             revealMode: 'one-by-one' 
+                           })}
+                           className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-medium"
+                           disabled={loading}
+                         >
+                           Reveal Question (One by One)
+                         </button>
+                                                  <button
+                            onClick={async () => {
+                              await handleUpdateGameState({ 
+                                questionRevealed: false, 
+                                revealMode: 'all-at-once',
+                                guessMode: true
+                              });
+                              // Also reveal all answers in Firestore
+                              if (currentQuestion) {
+                                await handleRevealAllAnswers();
+                              }
+                            }}
+                            className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 font-medium"
+                            disabled={loading}
+                          >
+                            Reveal All Answers (Guess Mode)
+                          </button>
+                       </div>
+                       
+                       {/* Show Reveal Question button when in guess mode */}
+                       {gameState?.revealMode === 'all-at-once' && gameState?.guessMode && (
+                         <div className="mt-3 pt-3 border-t border-gray-300">
+                           <button
+                             onClick={() => handleUpdateGameState({ questionRevealed: true })}
+                             className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 w-full font-medium"
+                             disabled={loading}
+                           >
+                             Reveal Question (After Guessing)
+                           </button>
+                         </div>
+                       )}
+                     </div>
+                   ) : (
+                    <div className="mt-4 space-y-3">
+                      <div className="text-sm text-green-600 font-semibold mb-3">
+                        ✓ Question is visible on display
+                      </div>
+                      
+                      {/* Reveal Mode Controls */}
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm">Reveal Mode:</span>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handleUpdateGameState({ revealMode: 'one-by-one' })}
+                            className={`px-3 py-1 rounded text-xs font-medium ${
+                              gameState?.revealMode === 'one-by-one'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                            }`}
+                            disabled={loading}
+                          >
+                            One by One
+                          </button>
+                          <button
+                            onClick={() => handleUpdateGameState({ revealMode: 'all-at-once' })}
+                            className={`px-3 py-1 rounded text-xs font-medium ${
+                              gameState?.revealMode === 'all-at-once'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                            }`}
+                            disabled={loading}
+                          >
+                            All at Once
+                          </button>
+                        </div>
+                      </div>
+                      
+                                             {gameState?.revealMode === 'all-at-once' && (
+                         <div className="space-y-2">
+                           <div className="flex items-center justify-between">
+                             <span className="font-medium text-sm">Guess Mode:</span>
+                             <label className="relative inline-flex items-center cursor-pointer">
+                               <input
+                                 type="checkbox"
+                                 checked={gameState?.guessMode || false}
+                                 onChange={() => handleUpdateGameState({ guessMode: !gameState?.guessMode })}
+                                 className="sr-only peer"
+                                 disabled={loading}
+                               />
+                               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                             </label>
+                           </div>
+                           
+                           <div className="flex space-x-2">
+                             <button
+                               onClick={() => handleRevealAllAnswers()}
+                               className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
+                               disabled={loading}
+                             >
+                               Reveal All Answers
+                             </button>
+                             <button
+                               onClick={() => handleHideAllAnswers()}
+                               className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                               disabled={loading}
+                             >
+                               Hide All Answers
+                             </button>
+                           </div>
+                           
+                           {/* Show Reveal Question button when in guess mode and answers are revealed */}
+                           {gameState?.guessMode && (
+                             <div className="mt-3 pt-3 border-t border-gray-300">
+                               <button
+                                 onClick={() => handleUpdateGameState({ questionRevealed: true })}
+                                 className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 w-full"
+                                 disabled={loading}
+                               >
+                                 Reveal Question
+                               </button>
+                             </div>
+                           )}
+                         </div>
+                       )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -546,36 +820,61 @@ export default function ControlPage() {
                       {/* Always show the answer text to the operator */}
                       <div className="font-bold text-lg mb-2">{answer.text}</div>
                       
-                      {answer.revealed ? (
-                        <div className="space-y-2">
-                          <div className="text-sm text-green-600 font-semibold">
-                            ✓ Revealed by: {answer.attribution?.toUpperCase() || 'UNKNOWN'}
-                          </div>
-                          <button
-                            onClick={() => handleHideAnswer(answer.id)}
-                            className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
-                            disabled={loading}
-                          >
-                            Hide Answer
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="text-sm text-gray-500 mb-2">Not revealed yet</div>
-                          <div className="flex flex-wrap gap-1">
-                            {(['red', 'green', 'blue', 'host', 'neutral'] as const).map((attribution) => (
-                              <button
-                                key={attribution}
-                                onClick={() => handleRevealAnswer(answer.id, attribution)}
-                                className="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600"
-                                disabled={loading}
-                              >
-                                {attribution.toUpperCase()}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                                             {gameState?.questionRevealed && gameState?.revealMode === 'one-by-one' ? (
+                         answer.revealed ? (
+                           <div className="space-y-2">
+                             <div className="text-sm text-green-600 font-semibold">
+                               ✓ Revealed by: {answer.attribution?.toUpperCase() || 'UNKNOWN'}
+                             </div>
+                             <button
+                               onClick={() => handleHideAnswer(answer.id)}
+                               className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
+                               disabled={loading}
+                             >
+                               Hide Answer
+                             </button>
+                           </div>
+                         ) : (
+                           <div className="space-y-2">
+                             <div className="text-sm text-gray-500 mb-2">Not revealed yet</div>
+                             
+                             {/* Manual Amount Input */}
+                             <div className="flex items-center space-x-2 mb-2">
+                               <label className="text-sm text-gray-600">Manual Amount:</label>
+                               <input
+                                 type="number"
+                                 placeholder="Enter amount"
+                                 value={manualAmounts[answer.id] || ''}
+                                 onChange={(e) => handleManualAmountChange(answer.id, parseInt(e.target.value) || 0)}
+                                 className="w-24 px-2 py-1 border border-gray-300 rounded text-sm"
+                                 min="0"
+                               />
+                               <span className="text-xs text-gray-500">₹</span>
+                             </div>
+                             
+                             <div className="flex flex-wrap gap-1">
+                               {(['red', 'green', 'blue', 'host', 'neutral'] as const).map((attribution) => (
+                                 <button
+                                   key={attribution}
+                                   onClick={() => handleRevealAnswerWithAmount(answer.id, attribution)}
+                                   className="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600"
+                                   disabled={loading}
+                                 >
+                                   {attribution.toUpperCase()}
+                                 </button>
+                               ))}
+                             </div>
+                           </div>
+                         )
+                       ) : (
+                         <div className="space-y-2">
+                           <div className={`text-sm font-semibold ${
+                             answer.revealed ? 'text-green-600' : 'text-gray-500'
+                           }`}>
+                             {answer.revealed ? '✓ Revealed' : 'Hidden'}
+                           </div>
+                         </div>
+                       )}
                     </div>
                   ))}
                 </div>
@@ -635,21 +934,62 @@ export default function ControlPage() {
                   </label>
                 </div>
                 
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">Audience Voting</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={gameState?.audienceWindow || false}
-                      onChange={() => handleUpdateGameState({ audienceWindow: !gameState?.audienceWindow })}
-                      className="sr-only peer"
-                      disabled={loading}
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                  </label>
-                </div>
-              </div>
-            </div>
+                                 <div className="flex items-center justify-between">
+                   <span className="font-medium">Audience Voting</span>
+                   <label className="relative inline-flex items-center cursor-pointer">
+                     <input
+                       type="checkbox"
+                       checked={gameState?.audienceWindow || false}
+                       onChange={() => handleUpdateGameState({ audienceWindow: !gameState?.audienceWindow })}
+                       className="sr-only peer"
+                       disabled={loading}
+                     />
+                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                   </label>
+                 </div>
+               </div>
+             </div>
+
+             {/* Audio Controls */}
+             <div className="bg-white rounded-lg shadow-md p-6">
+               <h2 className="text-xl font-bold mb-4">Audio Settings</h2>
+               <div className="space-y-4">
+                 <div className="flex items-center justify-between">
+                   <span className="font-medium">Sound Effects</span>
+                   <label className="relative inline-flex items-center cursor-pointer">
+                     <input
+                       type="checkbox"
+                       checked={audioEnabled}
+                       onChange={() => setAudioEnabled(!audioEnabled)}
+                       className="sr-only peer"
+                     />
+                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                   </label>
+                 </div>
+                 
+                 <div className="space-y-2">
+                   <div className="flex justify-between items-center">
+                     <span className="font-medium text-sm">Volume</span>
+                     <span className="text-sm text-gray-600">{Math.round(audioVolume * 100)}%</span>
+                   </div>
+                   <input
+                     type="range"
+                     min="0"
+                     max="1"
+                     step="0.1"
+                     value={audioVolume}
+                     onChange={(e) => setAudioVolume(parseFloat(e.target.value))}
+                     className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                   />
+                 </div>
+                 
+                 <div className="text-xs text-gray-500 space-y-1">
+                   <div>🎵 Big X: /sounds/big-x.mp3</div>
+                   <div>🎵 Team Answers: /sounds/team-answer-reveal.mp3</div>
+                   <div>🎵 Host Answers: /sounds/host-answer-reveal.mp3</div>
+                 </div>
+               </div>
+             </div>
 
             {/* Round 2 Bonus */}
             <div className="bg-white rounded-lg shadow-md p-6">
