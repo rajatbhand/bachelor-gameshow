@@ -11,6 +11,7 @@ export default function AudiencePage() {
     team: '' as 'red' | 'green' | 'blue' | ''
   });
   const [submitted, setSubmitted] = useState(false);
+  const [submittedTeam, setSubmittedTeam] = useState<'red' | 'green' | 'blue' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -44,6 +45,7 @@ export default function AudiencePage() {
       });
       
       setSubmitted(true);
+      setSubmittedTeam(formData.team);
       setFormData({ name: '', phone: '', team: '' });
     } catch {
       setError('Failed to submit. Please try again.');
@@ -56,9 +58,22 @@ export default function AudiencePage() {
     setFormData(prev => ({ ...prev, team }));
   };
 
-  if (submitted) {
+  const handleSubmitAnother = () => {
+    setSubmitted(false);
+    setSubmittedTeam(null);
+    setFormData({ name: '', phone: '', team: '' });
+  };
+
+  // Show team color background after submission
+  if (submitted && submittedTeam) {
+    const teamColors = {
+      red: 'bg-red-600',
+      green: 'bg-green-600', 
+      blue: 'bg-blue-600'
+    };
+
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
+      <div className={`min-h-screen ${teamColors[submittedTeam]} flex items-center justify-center p-4`}>
         <div className="bg-white rounded-lg p-8 max-w-md w-full text-center">
           <div className="text-6xl mb-4">🎉</div>
           <h1 className="text-2xl font-bold text-gray-900 mb-4">Thank You!</h1>
@@ -66,10 +81,10 @@ export default function AudiencePage() {
             Your team selection has been submitted successfully.
           </p>
           <button
-            onClick={() => setSubmitted(false)}
+            onClick={handleSubmitAnother}
             className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700"
           >
-            Submit Another
+            Submit Another Vote
           </button>
         </div>
       </div>
@@ -116,7 +131,7 @@ export default function AudiencePage() {
                 onClick={() => handleTeamSelect(team.id as 'red' | 'green' | 'blue')}
                 className={`p-4 rounded-lg border-2 transition-all ${
                   formData.team === team.id
-                    ? 'border-gray-900 bg-gray-100'
+                    ? 'border-blue-500 bg-blue-50'
                     : 'border-gray-300 hover:border-gray-400'
                 }`}
                 disabled={!gameState?.audienceWindow}
@@ -125,7 +140,7 @@ export default function AudiencePage() {
                   className="w-8 h-8 rounded-full mx-auto mb-2"
                   style={{ backgroundColor: team.color }}
                 ></div>
-                <div className="font-bold text-sm">{team.name}</div>
+                <div className="font-bold text-sm text-black">{team.name}</div>
               </button>
             ))}
           </div>
@@ -141,7 +156,7 @@ export default function AudiencePage() {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black placeholder-gray-500"
               placeholder="Enter your name"
               disabled={!gameState?.audienceWindow}
               required
@@ -156,7 +171,7 @@ export default function AudiencePage() {
               type="tel"
               value={formData.phone}
               onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black placeholder-gray-500"
               placeholder="Enter your phone number"
               disabled={!gameState?.audienceWindow}
               required
