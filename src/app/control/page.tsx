@@ -544,11 +544,13 @@ export default function ControlPage() {
                         <span className="text-sm text-gray-600">₹{answer.value}</span>
                       </div>
                       
+                      {/* Always show the answer text to the operator */}
+                      <div className="font-bold text-lg mb-2">{answer.text}</div>
+                      
                       {answer.revealed ? (
                         <div className="space-y-2">
-                          <div className="font-bold text-lg">{answer.text}</div>
-                          <div className="text-sm text-gray-600">
-                            Revealed by: {answer.attribution?.toUpperCase() || 'UNKNOWN'}
+                          <div className="text-sm text-green-600 font-semibold">
+                            ✓ Revealed by: {answer.attribution?.toUpperCase() || 'UNKNOWN'}
                           </div>
                           <button
                             onClick={() => handleHideAnswer(answer.id)}
@@ -560,7 +562,7 @@ export default function ControlPage() {
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          <div className="text-gray-500">Hidden</div>
+                          <div className="text-sm text-gray-500 mb-2">Not revealed yet</div>
                           <div className="flex flex-wrap gap-1">
                             {(['red', 'green', 'blue', 'host', 'neutral'] as const).map((attribution) => (
                               <button

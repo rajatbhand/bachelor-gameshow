@@ -202,7 +202,7 @@ export class GameStateManager {
             ...answer,
             revealed: true,
             attribution,
-            revealedAt: serverTimestamp()
+            revealedAt: new Date().toISOString()
           };
         }
         return answer;
@@ -225,7 +225,7 @@ export class GameStateManager {
             ...answer,
             revealed: false,
             attribution: null,
-            revealedAt: null
+            revealedAt: undefined
           };
         }
         return answer;
