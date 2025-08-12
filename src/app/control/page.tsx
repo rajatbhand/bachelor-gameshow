@@ -413,28 +413,36 @@ export default function ControlPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Question Management */}
           <div className="space-y-6">
-            {/* CSV Upload */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Upload CSV Questions</h2>
-              <div className="space-y-3">
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                  className="w-full p-2 border rounded"
-                />
-                <button
-                  onClick={handleCsvUpload}
-                  className="w-full p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
-                  disabled={loading || !csvFile}
-                >
-                  UPLOAD CSV
-                </button>
-                <div className="text-xs text-gray-600">
-                  CSV Format: QuestionID,QuestionText,AnswerCount,Answer1,Value1,Answer2,Value2,...
-                </div>
-              </div>
-            </div>
+                         {/* CSV Upload */}
+             <div className="bg-white rounded-lg shadow-md p-6">
+               <h2 className="text-xl font-bold mb-4">Upload CSV Questions</h2>
+               <div className="space-y-3">
+                 <input
+                   type="file"
+                   accept=".csv"
+                   onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                   className="w-full p-2 border rounded"
+                 />
+                 <button
+                   onClick={handleCsvUpload}
+                   className="w-full p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
+                   disabled={loading || !csvFile}
+                 >
+                   UPLOAD CSV
+                 </button>
+                 <div className="flex space-x-2">
+                   <button
+                     onClick={() => window.open('/sample-questions.csv', '_blank')}
+                     className="flex-1 p-2 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                   >
+                     📥 Download Sample CSV
+                   </button>
+                 </div>
+                 <div className="text-xs text-gray-600">
+                   CSV Format: QuestionID,QuestionText,AnswerCount,Answer1,Value1,Answer2,Value2,...
+                 </div>
+               </div>
+             </div>
 
             {/* Manual Question */}
             <div className="bg-white rounded-lg shadow-md p-6">
