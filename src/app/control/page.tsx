@@ -14,6 +14,7 @@ export default function ControlPage() {
     text: '',
     answers: Array(10).fill({ text: '', value: 0 })
   });
+  const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
 
   useEffect(() => {
     console.log('Control page: Initializing...');
@@ -41,10 +42,17 @@ export default function ControlPage() {
       setCurrentQuestion(question);
     });
 
+    // Subscribe to audience members
+    const unsubscribeAudience = gameStateManager.subscribeToAudienceMembers((members) => {
+      console.log('Control page: Audience members updated:', members);
+      setAudienceMembers(members);
+    });
+
     return () => {
       unsubscribeGameState();
       unsubscribeTeams();
       unsubscribeQuestion();
+      unsubscribeAudience();
     };
   }, []);
 
@@ -52,6 +60,14 @@ export default function ControlPage() {
     setLoading(true);
     try {
       await gameStateManager.updateGameState(updates);
+      
+      // If closing audience window, update voting results
+      if (updates.audienceWindow === false) {
+        await gameStateManager.updateAudienceVotingResults();
+        // Reload audience members
+        const members = await gameStateManager.getAudienceMembers();
+        setAudienceMembers(members);
+      }
     } catch (error) {
       console.error('Error updating game state:', error);
     } finally {
@@ -311,26 +327,7 @@ export default function ControlPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column - Game Controls */}
           <div className="space-y-6">
-            {/* Round Selection */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Round Control</h2>
-              <div className="grid grid-cols-3 gap-2">
-                {(['pre-show', 'round1', 'round2', 'round3', 'final'] as const).map((round) => (
-                  <button
-                    key={round}
-                    onClick={() => handleUpdateGameState({ currentRound: round })}
-                    className={`p-3 rounded-lg font-bold ${
-                      gameState?.currentRound === round
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                    disabled={loading}
-                  >
-                    {round.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
+            
 
             
 
@@ -368,19 +365,41 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* Audience Control */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Audience Voting</h2>
-              <button
-                onClick={() => handleUpdateGameState({ audienceWindow: !gameState?.audienceWindow })}
-                className={`w-full p-3 rounded-lg font-bold ${
-                  gameState?.audienceWindow ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'
-                }`}
-                disabled={loading}
-              >
-                {gameState?.audienceWindow ? 'CLOSE VOTING' : 'OPEN VOTING'}
-              </button>
-            </div>
+                         {/* Audience Control */}
+             <div className="bg-white rounded-lg shadow-md p-6">
+               <h2 className="text-xl font-bold mb-4">Audience Voting</h2>
+               <button
+                 onClick={() => handleUpdateGameState({ audienceWindow: !gameState?.audienceWindow })}
+                 className={`w-full p-3 rounded-lg font-bold ${
+                   gameState?.audienceWindow ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'
+                 }`}
+                 disabled={loading}
+               >
+                 {gameState?.audienceWindow ? 'CLOSE VOTING' : 'OPEN VOTING'}
+               </button>
+               
+               {/* Voting Results */}
+               <div className="mt-4">
+                 <h3 className="font-bold text-sm text-gray-700 mb-2">Voting Results:</h3>
+                 <div className="grid grid-cols-3 gap-2 text-sm">
+                   <div className="text-center">
+                     <div className="font-bold text-red-600">Red</div>
+                     <div>{audienceMembers.filter(m => m.team === 'red').length} votes</div>
+                   </div>
+                   <div className="text-center">
+                     <div className="font-bold text-green-600">Green</div>
+                     <div>{audienceMembers.filter(m => m.team === 'green').length} votes</div>
+                   </div>
+                   <div className="text-center">
+                     <div className="font-bold text-blue-600">Blue</div>
+                     <div>{audienceMembers.filter(m => m.team === 'blue').length} votes</div>
+                   </div>
+                 </div>
+                 <div className="text-xs text-gray-500 mt-2">
+                   Total: {audienceMembers.length} submissions
+                 </div>
+               </div>
+             </div>
 
             {/* Round 2 Bonus */}
             <div className="bg-white rounded-lg shadow-md p-6">

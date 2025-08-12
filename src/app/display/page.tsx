@@ -8,6 +8,7 @@ export default function DisplayPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [scoreBump] = useState<{ team: string; amount: number } | null>(null);
+  const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
 
   useEffect(() => {
     console.log('Display page: Initializing...');
@@ -36,10 +37,16 @@ export default function DisplayPage() {
       setCurrentQuestion(question);
     });
 
+    const unsubscribeAudience = gameStateManager.subscribeToAudienceMembers((members) => {
+      console.log('Display page: Audience members updated:', members);
+      setAudienceMembers(members);
+    });
+
     return () => {
       unsubscribeGameState();
       unsubscribeTeams();
       unsubscribeQuestion();
+      unsubscribeAudience();
     };
   }, []);
 
@@ -76,28 +83,43 @@ export default function DisplayPage() {
         Debug: GameState={JSON.stringify(gameState)}, Teams={teams.length}, Question={currentQuestion?.id || 'none'}
       </div>
       
-      {/* Header with Round and Teams */}
-      <div className="bg-gray-800 p-4">
-        <div className="flex justify-between items-center">
-          <div className="text-2xl font-bold">
-            Round: {gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}
-          </div>
-          <div className="flex space-x-8">
-            {teams.map((team) => (
-              <div key={team.id} className="text-center">
-                <div 
-                  className="text-lg font-bold"
-                  style={{ color: team.color }}
-                >
-                  {team.name}
-                </div>
-                <div className="text-3xl font-bold">₹{team.score.toLocaleString()}</div>
-                <div className="text-sm text-gray-400">Dugout: {team.dugoutCount}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+             {/* Header with Round and Teams */}
+       <div className="bg-gray-800 p-4">
+         <div className="flex justify-between items-center">
+           <div className="text-2xl font-bold">
+             Round: {gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}
+           </div>
+           <div className="flex space-x-8">
+             {teams.map((team) => (
+               <div key={team.id} className="text-center">
+                 <div 
+                   className="text-lg font-bold"
+                   style={{ color: team.color }}
+                 >
+                   {team.name}
+                 </div>
+                 <div className="text-3xl font-bold">₹{team.score.toLocaleString()}</div>
+                 <div className="text-sm text-gray-400">
+                   Dugout: {team.dugoutCount} 
+                   {audienceMembers.length > 0 && (
+                     <span className="text-yellow-400"> ({audienceMembers.filter(m => m.team === team.id).length} votes)</span>
+                   )}
+                 </div>
+               </div>
+             ))}
+           </div>
+         </div>
+         
+         {/* Audience Voting Status */}
+         {gameState?.audienceWindow && (
+           <div className="mt-4 text-center">
+             <div className="bg-green-600 text-white px-4 py-2 rounded-lg inline-block">
+               <span className="font-bold">🗳️ AUDIENCE VOTING OPEN</span>
+               <span className="ml-2">({audienceMembers.length} submissions)</span>
+             </div>
+           </div>
+         )}
+       </div>
 
       {/* Main Content */}
       <div className="p-8">

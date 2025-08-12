@@ -142,6 +142,23 @@ export class GameStateManager {
     return unsubscribe;
   }
 
+  // Listen to audience members changes
+  subscribeToAudienceMembers(callback: (members: AudienceMember[]) => void): () => void {
+    const audienceRef = collection(db, 'audience');
+    const q = query(audienceRef, orderBy('submittedAt', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const members: AudienceMember[] = [];
+      querySnapshot.forEach((docSnapshot) => {
+        members.push({ id: docSnapshot.id, ...docSnapshot.data() } as AudienceMember);
+      });
+      callback(members);
+    });
+
+    this.listeners.set('audienceMembers', unsubscribe);
+    return unsubscribe;
+  }
+
   // Listen to current question and answers
   subscribeToCurrentQuestion(callback: (question: Question | null) => void): () => void {
     const gameStateRef = doc(db, 'gameState', 'current');
@@ -301,6 +318,31 @@ export class GameStateManager {
     return members;
   }
 
+  // Get audience voting results and update team dugout counts
+  async updateAudienceVotingResults(): Promise<void> {
+    const members = await this.getAudienceMembers();
+    
+    // Count votes per team
+    const voteCounts = {
+      red: 0,
+      green: 0,
+      blue: 0
+    };
+    
+    members.forEach(member => {
+      if (member.team in voteCounts) {
+        voteCounts[member.team as keyof typeof voteCounts]++;
+      }
+    });
+    
+    // Update team dugout counts
+    const teams = ['red', 'green', 'blue'] as const;
+    for (const teamId of teams) {
+      const teamRef = doc(db, 'teams', teamId);
+      await updateDoc(teamRef, { dugoutCount: voteCounts[teamId] });
+    }
+  }
+
   // Apply Round 2 bonus
   async applyRound2Bonus(): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
@@ -360,6 +402,21 @@ export class GameStateManager {
       const teamRef = doc(db, 'teams', teamId);
       await updateDoc(teamRef, { score: 0, dugoutCount: 0 });
     }
+
+    // Reset all questions - clear revealed answers
+    const questionsRef = collection(db, 'questions');
+    const questionsSnapshot = await getDocs(questionsRef);
+    const questionUpdatePromises = questionsSnapshot.docs.map(async (docSnapshot) => {
+      const question = docSnapshot.data() as Question;
+      const resetAnswers = question.answers.map(answer => ({
+        ...answer,
+        revealed: false,
+        attribution: null,
+        revealedAt: undefined
+      }));
+      return updateDoc(docSnapshot.ref, { answers: resetAnswers });
+    });
+    await Promise.all(questionUpdatePromises);
 
     // Clear audience
     const audienceRef = collection(db, 'audience');
