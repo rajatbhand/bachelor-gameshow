@@ -85,7 +85,7 @@ export default function DisplayPage() {
             {teams.map((team) => (
               <div key={team.id} className="text-center">
                 <div 
-                  className={`text-lg font-bold ${gameState?.activeTeam === team.id ? 'text-yellow-400' : ''}`}
+                  className="text-lg font-bold"
                   style={{ color: team.color }}
                 >
                   {team.name}

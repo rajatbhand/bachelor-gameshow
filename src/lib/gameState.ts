@@ -196,19 +196,28 @@ export class GameStateManager {
     
     if (questionDoc.exists()) {
       const question = questionDoc.data() as Question;
-      const updatedAnswers = question.answers.map(answer => {
-        if (answer.id === answerId) {
-          return {
-            ...answer,
-            revealed: true,
-            attribution,
-            revealedAt: new Date().toISOString()
-          };
-        }
-        return answer;
-      });
+      const answerToReveal = question.answers.find(answer => answer.id === answerId);
       
-      await updateDoc(questionRef, { answers: updatedAnswers });
+      if (answerToReveal) {
+        const updatedAnswers = question.answers.map(answer => {
+          if (answer.id === answerId) {
+            return {
+              ...answer,
+              revealed: true,
+              attribution,
+              revealedAt: new Date().toISOString()
+            };
+          }
+          return answer;
+        });
+        
+        await updateDoc(questionRef, { answers: updatedAnswers });
+        
+        // Add score to team if it's a team attribution (not host or neutral)
+        if (attribution === 'red' || attribution === 'green' || attribution === 'blue') {
+          await this.updateTeamScore(attribution, answerToReveal.value);
+        }
+      }
     }
   }
 
@@ -219,19 +228,28 @@ export class GameStateManager {
     
     if (questionDoc.exists()) {
       const question = questionDoc.data() as Question;
-      const updatedAnswers = question.answers.map(answer => {
-        if (answer.id === answerId) {
-          return {
-            ...answer,
-            revealed: false,
-            attribution: null,
-            revealedAt: undefined
-          };
-        }
-        return answer;
-      });
+      const answerToHide = question.answers.find(answer => answer.id === answerId);
       
-      await updateDoc(questionRef, { answers: updatedAnswers });
+      if (answerToHide && answerToHide.revealed && answerToHide.attribution) {
+        const updatedAnswers = question.answers.map(answer => {
+          if (answer.id === answerId) {
+            return {
+              ...answer,
+              revealed: false,
+              attribution: null,
+              revealedAt: undefined
+            };
+          }
+          return answer;
+        });
+        
+        await updateDoc(questionRef, { answers: updatedAnswers });
+        
+        // Remove score from team if it was a team attribution
+        if (answerToHide.attribution === 'red' || answerToHide.attribution === 'green' || answerToHide.attribution === 'blue') {
+          await this.updateTeamScore(answerToHide.attribution, -answerToHide.value);
+        }
+      }
     }
   }
 

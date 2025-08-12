@@ -253,29 +253,25 @@ export default function ControlPage() {
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Game Show Control Panel</h1>
           
-          {/* Game State Overview */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="text-center">
-              <div className="text-sm text-gray-600">Current Round</div>
-              <div className="text-xl font-bold">{gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm text-gray-600">Active Team</div>
-              <div className="text-xl font-bold">{gameState?.activeTeam?.toUpperCase() || 'NONE'}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm text-gray-600">Big X</div>
-              <div className={`text-xl font-bold ${gameState?.bigX ? 'text-red-600' : 'text-gray-400'}`}>
-                {gameState?.bigX ? 'ON' : 'OFF'}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm text-gray-600">Scorecard</div>
-              <div className={`text-xl font-bold ${gameState?.scorecardOverlay ? 'text-green-600' : 'text-gray-400'}`}>
-                {gameState?.scorecardOverlay ? 'SHOWING' : 'HIDDEN'}
-              </div>
-            </div>
-          </div>
+                     {/* Game State Overview */}
+           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+             <div className="text-center">
+               <div className="text-sm text-gray-600">Current Round</div>
+               <div className="text-xl font-bold">{gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}</div>
+             </div>
+             <div className="text-center">
+               <div className="text-sm text-gray-600">Big X</div>
+               <div className={`text-xl font-bold ${gameState?.bigX ? 'text-red-600' : 'text-gray-400'}`}>
+                 {gameState?.bigX ? 'ON' : 'OFF'}
+               </div>
+             </div>
+             <div className="text-center">
+               <div className="text-sm text-gray-600">Scorecard</div>
+               <div className={`text-xl font-bold ${gameState?.scorecardOverlay ? 'text-green-600' : 'text-gray-400'}`}>
+                 {gameState?.scorecardOverlay ? 'SHOWING' : 'HIDDEN'}
+               </div>
+             </div>
+           </div>
 
           {/* Team Scores */}
           <div className="grid grid-cols-3 gap-4">
@@ -332,26 +328,7 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* Team Selection */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Active Team</h2>
-              <div className="grid grid-cols-2 gap-2">
-                {(['red', 'green', 'blue', 'host'] as const).map((team) => (
-                  <button
-                    key={team}
-                    onClick={() => handleUpdateGameState({ activeTeam: team })}
-                    className={`p-3 rounded-lg font-bold ${
-                      gameState?.activeTeam === team
-                        ? 'bg-yellow-500 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                    disabled={loading}
-                  >
-                    {team.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
+            
 
             {/* Overlay Controls */}
             <div className="bg-white rounded-lg shadow-md p-6">
