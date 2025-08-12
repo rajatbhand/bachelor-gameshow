@@ -290,6 +290,12 @@ export class GameStateManager {
     }
   }
 
+  // Add question
+  async addQuestion(question: Question): Promise<void> {
+    const questionRef = doc(db, 'questions', question.id);
+    await setDoc(questionRef, question);
+  }
+
   // Reset game
   async resetGame(): Promise<void> {
     // Reset game state

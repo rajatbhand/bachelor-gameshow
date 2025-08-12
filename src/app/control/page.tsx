@@ -8,17 +8,38 @@ export default function ControlPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
-
   const [loading, setLoading] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [manualQuestion, setManualQuestion] = useState({
+    text: '',
+    answers: Array(10).fill({ text: '', value: 0 })
+  });
 
   useEffect(() => {
+    console.log('Control page: Initializing...');
+    
     // Initialize game
-    gameStateManager.initializeGame();
+    gameStateManager.initializeGame().then(() => {
+      console.log('Control page: Game initialized');
+    }).catch((error) => {
+      console.error('Control page: Error initializing game:', error);
+    });
 
     // Subscribe to real-time updates
-    const unsubscribeGameState = gameStateManager.subscribeToGameState(setGameState);
-    const unsubscribeTeams = gameStateManager.subscribeToTeams(setTeams);
-    const unsubscribeQuestion = gameStateManager.subscribeToCurrentQuestion(setCurrentQuestion);
+    const unsubscribeGameState = gameStateManager.subscribeToGameState((state) => {
+      console.log('Control page: Game state updated:', state);
+      setGameState(state);
+    });
+    
+    const unsubscribeTeams = gameStateManager.subscribeToTeams((teamsData) => {
+      console.log('Control page: Teams updated:', teamsData);
+      setTeams(teamsData);
+    });
+    
+    const unsubscribeQuestion = gameStateManager.subscribeToCurrentQuestion((question) => {
+      console.log('Control page: Question updated:', question);
+      setCurrentQuestion(question);
+    });
 
     return () => {
       unsubscribeGameState();
@@ -118,6 +139,108 @@ export default function ControlPage() {
       await gameStateManager.updateGameState({ currentQuestion: questionId });
     } catch (error) {
       console.error('Error selecting question:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCsvUpload = async () => {
+    if (!csvFile) return;
+    
+    setLoading(true);
+    try {
+      const text = await csvFile.text();
+      const lines = text.split('\n');
+      const questions: Question[] = [];
+      
+      // Skip header row
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const columns = line.split(',');
+        if (columns.length < 4) continue;
+        
+        const questionId = columns[0];
+        const questionText = columns[1];
+        const answerCount = parseInt(columns[2]) || 10;
+        
+        const answers = [];
+        for (let j = 0; j < answerCount; j++) {
+          const answerText = columns[3 + j * 2] || '';
+          const answerValue = parseInt(columns[4 + j * 2]) || 0;
+          
+          if (answerText) {
+            answers.push({
+              id: `${questionId}_answer_${j + 1}`,
+              text: answerText,
+              value: answerValue,
+              revealed: false,
+              attribution: null
+            });
+          }
+        }
+        
+        questions.push({
+          id: questionId,
+          text: questionText,
+          answers,
+          answerCount
+        });
+      }
+      
+      // Load questions to Firebase
+      for (const question of questions) {
+        await gameStateManager.addQuestion(question);
+      }
+      
+      alert(`Successfully loaded ${questions.length} questions!`);
+      setCsvFile(null);
+    } catch (error) {
+      console.error('Error uploading CSV:', error);
+      alert('Error uploading CSV. Please check the format.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddManualQuestion = async () => {
+    if (!manualQuestion.text) {
+      alert('Please enter a question text');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const questionId = `manual_${Date.now()}`;
+      const answers = manualQuestion.answers
+        .filter(answer => answer.text && answer.value > 0)
+        .map((answer, index) => ({
+          id: `${questionId}_answer_${index + 1}`,
+          text: answer.text,
+          value: answer.value,
+          revealed: false,
+          attribution: null
+        }));
+      
+      const question: Question = {
+        id: questionId,
+        text: manualQuestion.text,
+        answers,
+        answerCount: answers.length
+      };
+      
+      await gameStateManager.addQuestion(question);
+      alert('Question added successfully!');
+      
+      // Reset form
+      setManualQuestion({
+        text: '',
+        answers: Array(10).fill({ text: '', value: 0 })
+      });
+    } catch (error) {
+      console.error('Error adding manual question:', error);
+      alert('Error adding question. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -317,6 +440,76 @@ export default function ControlPage() {
                     <div className="text-xs text-gray-600 truncate">{question.text}</div>
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* CSV Upload */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Upload CSV Questions</h2>
+              <div className="space-y-3">
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                  className="w-full p-2 border rounded"
+                />
+                <button
+                  onClick={handleCsvUpload}
+                  className="w-full p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
+                  disabled={loading || !csvFile}
+                >
+                  UPLOAD CSV
+                </button>
+                <div className="text-xs text-gray-600">
+                  CSV Format: QuestionID,QuestionText,AnswerCount,Answer1,Value1,Answer2,Value2,...
+                </div>
+              </div>
+            </div>
+
+            {/* Manual Question */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Add Manual Question</h2>
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  placeholder="Question text"
+                  value={manualQuestion.text}
+                  onChange={(e) => setManualQuestion({...manualQuestion, text: e.target.value})}
+                  className="w-full p-2 border rounded"
+                />
+                {manualQuestion.answers.map((answer, index) => (
+                  <div key={index} className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder={`Answer ${index + 1}`}
+                      value={answer.text}
+                      onChange={(e) => {
+                        const newAnswers = [...manualQuestion.answers];
+                        newAnswers[index] = { ...newAnswers[index], text: e.target.value };
+                        setManualQuestion({...manualQuestion, answers: newAnswers});
+                      }}
+                      className="flex-1 p-2 border rounded"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Value"
+                      value={answer.value}
+                      onChange={(e) => {
+                        const newAnswers = [...manualQuestion.answers];
+                        newAnswers[index] = { ...newAnswers[index], value: parseInt(e.target.value) || 0 };
+                        setManualQuestion({...manualQuestion, answers: newAnswers});
+                      }}
+                      className="w-20 p-2 border rounded"
+                    />
+                  </div>
+                ))}
+                <button
+                  onClick={handleAddManualQuestion}
+                  className="w-full p-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700"
+                  disabled={loading}
+                >
+                  ADD QUESTION
+                </button>
               </div>
             </div>
 

@@ -10,13 +10,30 @@ export default function DisplayPage() {
   const [scoreBump] = useState<{ team: string; amount: number } | null>(null);
 
   useEffect(() => {
+    console.log('Display page: Initializing...');
+    
     // Initialize game
-    gameStateManager.initializeGame();
+    gameStateManager.initializeGame().then(() => {
+      console.log('Display page: Game initialized');
+    }).catch((error) => {
+      console.error('Display page: Error initializing game:', error);
+    });
 
     // Subscribe to real-time updates
-    const unsubscribeGameState = gameStateManager.subscribeToGameState(setGameState);
-    const unsubscribeTeams = gameStateManager.subscribeToTeams(setTeams);
-    const unsubscribeQuestion = gameStateManager.subscribeToCurrentQuestion(setCurrentQuestion);
+    const unsubscribeGameState = gameStateManager.subscribeToGameState((state) => {
+      console.log('Display page: Game state updated:', state);
+      setGameState(state);
+    });
+    
+    const unsubscribeTeams = gameStateManager.subscribeToTeams((teamsData) => {
+      console.log('Display page: Teams updated:', teamsData);
+      setTeams(teamsData);
+    });
+    
+    const unsubscribeQuestion = gameStateManager.subscribeToCurrentQuestion((question) => {
+      console.log('Display page: Question updated:', question);
+      setCurrentQuestion(question);
+    });
 
     return () => {
       unsubscribeGameState();
@@ -24,6 +41,8 @@ export default function DisplayPage() {
       unsubscribeQuestion();
     };
   }, []);
+
+  console.log('Display page: Current state:', { gameState, teams, currentQuestion });
 
   // Show logo screen
   if (gameState?.logoOnly) {
@@ -51,6 +70,11 @@ export default function DisplayPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
+      {/* Debug Info */}
+      <div className="bg-red-900 p-2 text-xs">
+        Debug: GameState={JSON.stringify(gameState)}, Teams={teams.length}, Question={currentQuestion?.id || 'none'}
+      </div>
+      
       {/* Header with Round and Teams */}
       <div className="bg-gray-800 p-4">
         <div className="flex justify-between items-center">
@@ -98,18 +122,18 @@ export default function DisplayPage() {
                       ? (answer.attribution === 'red' ? '#ef4444' : 
                          answer.attribution === 'green' ? '#22c55e' : 
                          answer.attribution === 'blue' ? '#3b82f6' : 
-                         answer.attribution === 'host' ? '#6b7280' : '#9ca3af')
-                      : undefined
+                         answer.attribution === 'host' ? '#6b7280' : '#6b7280')
+                      : '#4b5563'
                   }}
                 >
                   <div className="absolute inset-0 flex items-center justify-center p-4">
                     {answer.revealed ? (
                       <div className="text-center">
-                        <div className="text-2xl font-bold mb-2">{answer.text}</div>
-                        <div className="text-xl font-bold text-green-600">₹{answer.value}</div>
+                        <div className="text-2xl font-bold">{answer.text}</div>
+                        <div className="text-lg font-semibold">₹{answer.value.toLocaleString()}</div>
                       </div>
                     ) : (
-                      <div className="text-4xl font-bold text-gray-400">{index + 1}</div>
+                      <div className="text-4xl font-bold text-gray-400">?</div>
                     )}
                   </div>
                 </div>
@@ -117,45 +141,37 @@ export default function DisplayPage() {
             </div>
           </div>
         ) : (
-          <div className="text-center py-20">
-            <h2 className="text-4xl font-bold mb-4">Waiting for Question...</h2>
-            <p className="text-xl text-gray-400">The host will select a question soon</p>
+          <div className="text-center">
+            <h2 className="text-4xl font-bold mb-4">No Question Selected</h2>
+            <p className="text-xl text-gray-400">Please select a question from the control panel</p>
           </div>
         )}
       </div>
 
-      {/* Score Bump Animation */}
-      {scoreBump && (
-        <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
-          <div 
-            className="text-8xl font-bold animate-bounce"
-            style={{ color: scoreBump.team === 'red' ? '#ef4444' : 
-                           scoreBump.team === 'green' ? '#22c55e' : '#3b82f6' }}
-          >
-            +₹{scoreBump.amount}
+      {/* Scorecard Overlay */}
+      {gameState?.scorecardOverlay && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-8 max-w-4xl w-full mx-4">
+            <h2 className="text-4xl font-bold text-center mb-8">FINAL SCORES</h2>
+            <div className="grid grid-cols-3 gap-8">
+              {teams.map((team) => (
+                <div key={team.id} className="text-center">
+                  <div className="text-3xl font-bold mb-2" style={{ color: team.color }}>
+                    {team.name}
+                  </div>
+                  <div className="text-6xl font-bold">₹{team.score.toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Scorecard Overlay */}
-      {gameState?.scorecardOverlay && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center">
-          <div className="bg-gray-800 rounded-lg p-8 max-w-2xl w-full mx-4">
-            <h2 className="text-4xl font-bold text-center mb-8">FINAL SCORES</h2>
-            <div className="space-y-4">
-              {teams.map((team) => (
-                <div key={team.id} className="flex justify-between items-center p-4 bg-gray-700 rounded">
-                  <div className="flex items-center space-x-4">
-                    <div 
-                      className="w-8 h-8 rounded-full"
-                      style={{ backgroundColor: team.color }}
-                    ></div>
-                    <span className="text-2xl font-bold">{team.name}</span>
-                  </div>
-                  <span className="text-3xl font-bold">₹{team.score.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
+      {/* Score Bump Animation */}
+      {scoreBump && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
+          <div className="text-6xl font-bold text-green-400 animate-bounce">
+            +₹{scoreBump.amount.toLocaleString()}
           </div>
         </div>
       )}
