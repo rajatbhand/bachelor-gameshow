@@ -62,9 +62,11 @@ export default function ControlPage() {
   const handleRevealAnswer = async (answerId: string, attribution: 'red' | 'green' | 'blue' | 'host' | 'neutral') => {
     if (!currentQuestion) return;
     
+    console.log('Control: Revealing answer:', answerId, 'with attribution:', attribution);
     setLoading(true);
     try {
       await gameStateManager.revealAnswer(currentQuestion.id, answerId, attribution);
+      console.log('Control: Answer revealed successfully');
     } catch (error) {
       console.error('Error revealing answer:', error);
     } finally {

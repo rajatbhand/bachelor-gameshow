@@ -150,20 +150,25 @@ export class GameStateManager {
       if (docSnapshot.exists()) {
         const state = docSnapshot.data() as GameState;
         if (state.currentQuestion) {
+          // Listen to the specific question document for real-time updates
           const questionRef = doc(db, 'questions', state.currentQuestion);
-          const questionDoc = await getDoc(questionRef);
-          if (questionDoc.exists()) {
-            callback(questionDoc.data() as Question);
-          } else {
-            callback(null);
-          }
+          const questionUnsubscribe = onSnapshot(questionRef, (questionDoc) => {
+            if (questionDoc.exists()) {
+              callback(questionDoc.data() as Question);
+            } else {
+              callback(null);
+            }
+          });
+          
+          // Store the question listener for cleanup
+          this.listeners.set('currentQuestion', questionUnsubscribe);
         } else {
           callback(null);
         }
       }
     });
 
-    this.listeners.set('currentQuestion', unsubscribe);
+    this.listeners.set('gameState', unsubscribe);
     return unsubscribe;
   }
 
