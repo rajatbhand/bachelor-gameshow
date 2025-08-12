@@ -1,15 +1,17 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getAnalytics } from 'firebase/analytics';
 
 // Firebase configuration for bachelore-gameshow project
 const firebaseConfig = {
-  apiKey: "AIzaSyBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", // You'll need to replace this
+  apiKey: "AIzaSyB_2aYV2IGZdrNj4-aR4PWApKZrhUlOY9g",
   authDomain: "bachelore-gameshow.firebaseapp.com",
   projectId: "bachelore-gameshow",
-  storageBucket: "bachelore-gameshow.appspot.com",
-  messagingSenderId: "123456789", // You'll need to replace this
-  appId: "1:123456789:web:abcdef123456" // You'll need to replace this
+  storageBucket: "bachelore-gameshow.firebasestorage.app",
+  messagingSenderId: "819584265831",
+  appId: "1:819584265831:web:3bc16d030b6b2b66752ec2",
+  measurementId: "G-G9ZRWDBS3C"
 };
 
 // Initialize Firebase
@@ -20,6 +22,9 @@ export const db = getFirestore(app);
 
 // Initialize Auth
 export const auth = getAuth(app);
+
+// Initialize Analytics (only in browser environment)
+export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
 
 // Note: Using production Firestore database
 // For development with emulators, uncomment the lines below:
