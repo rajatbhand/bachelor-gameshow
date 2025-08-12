@@ -23,6 +23,30 @@ export default function DisplayPage() {
     team: ''
   });
 
+  // --- TIMER ANIMATION STATE ---
+  const [timeLeft, setTimeLeft] = useState(52);
+  const [flippedCards, setFlippedCards] = useState<boolean[]>(Array(52).fill(false));
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // --- CARD DECK LOGIC ---
+  const [shuffledDeck, setShuffledDeck] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (gameState?.timerActive) {
+      // Create a standard 52-card deck
+      const suits = ['club', 'diamond', 'heart', 'spade'];
+      const ranks = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king'];
+      const deck = suits.flatMap(suit => ranks.map(rank => `${suit}_${rank}.png`));
+
+      // Shuffle the deck (Fisher-Yates algorithm)
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      setShuffledDeck(deck);
+    }
+  }, [gameState?.timerActive]);
+
   // --- AUDIO SETUP START ---
   const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
   const teamAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -84,6 +108,39 @@ export default function DisplayPage() {
     }
   }, [gameState, currentQuestion, prevGameState, prevCurrentQuestion]);
   // --- AUDIO SETUP END ---
+
+  // --- TIMER LOGIC & CARD REVEAL ---
+  useEffect(() => {
+    if (gameState?.timerActive && gameState.timerStartTime) {
+      timerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - gameState.timerStartTime!) / 1000);
+        const remaining = Math.max(0, gameState.timerDuration - elapsed);
+        
+        setTimeLeft(remaining);
+
+        // Flip cards based on elapsed time
+        const newFlipped = Array(52).fill(false);
+        for (let i = 0; i < elapsed; i++) {
+          if (i < 52) {
+            newFlipped[i] = true;
+          }
+        }
+        setFlippedCards(newFlipped);
+
+        if (remaining === 0) {
+          if (timerRef.current) clearInterval(timerRef.current);
+        }
+      }, 250); // Check 4 times a second for accuracy
+    } else {
+      // Reset timer visuals when it's not active
+      setTimeLeft(52);
+      setFlippedCards(Array(52).fill(false));
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [gameState?.timerActive, gameState?.timerStartTime, gameState?.timerDuration]);
 
   // Team colors mapping
   const TEAM_COLORS: { [key: string]: string } = {
@@ -319,6 +376,29 @@ export default function DisplayPage() {
             <div className="absolute inset-0 bg-white text-black text-6xl md:text-8xl font-black animate-ping opacity-50">
               +{formatInr(scoreAnimation.amount)}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Horizontal Timer Bar */}
+      {gameState?.timerActive && (
+        <div className="fixed bottom-0 left-0 right-0 h-32 bg-black bg-opacity-80 flex items-center justify-center p-4 z-30 overflow-hidden">
+          {/* Horizontal Card Strip */}
+          <div className="w-full flex items-center justify-center space-x-1">
+            {shuffledDeck.map((cardFace, index) => (
+              <div key={index} className="w-[1.7vw] h-[2.4vw] min-w-[24px] min-h-[34px] perspective-1000">
+                <div
+                  className={`relative w-full h-full transition-transform duration-700 transform-style-preserve-3d ${flippedCards[index] ? 'rotate-y-180' : ''}`}
+                >
+                  <div className="absolute w-full h-full backface-hidden">
+                    <img src="/cards/back-red.png" alt="Card Back" className="w-full h-full object-cover rounded-sm" />
+                  </div>
+                  <div className="absolute w-full h-full backface-hidden rotate-y-180">
+                    <img src={`/cards/${cardFace}`} alt="Card Face" className="w-full h-full object-cover rounded-sm" />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

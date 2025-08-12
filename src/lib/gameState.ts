@@ -10,7 +10,8 @@ import {
   query,
   orderBy,
   serverTimestamp,
-  getDocs
+  getDocs,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -28,6 +29,10 @@ export interface GameState {
   revealMode: 'one-by-one' | 'all-at-once';
   guessMode: boolean;
   lastUpdated: unknown;
+  // Timer state
+  timerActive: boolean;
+  timerStartTime: number | null;
+  timerDuration: number;
 }
 
 export interface Team {
@@ -92,7 +97,11 @@ export class GameStateManager {
         questionRevealed: false,
         revealMode: 'one-by-one',
         guessMode: false,
-        lastUpdated: serverTimestamp()
+        lastUpdated: serverTimestamp(),
+        // Timer state
+        timerActive: false,
+        timerStartTime: null,
+        timerDuration: 52
       };
       
       await setDoc(gameStateRef, initialState);
@@ -438,6 +447,21 @@ export class GameStateManager {
     }
   }
 
+  // Clear all questions from the database
+  async clearAllQuestions(): Promise<void> {
+    console.log('GameState: Clearing all questions from Firestore...');
+    const questionsCollectionRef = collection(db, 'questions');
+    const querySnapshot = await getDocs(questionsCollectionRef);
+    const batch = writeBatch(db);
+
+    querySnapshot.forEach((docSnapshot) => {
+      batch.delete(docSnapshot.ref);
+    });
+
+    await batch.commit();
+    console.log(`GameState: Cleared ${querySnapshot.size} questions.`);
+  }
+
   // Reset game
   async resetGame(): Promise<void> {
     console.log('GameStateManager: Starting game reset...');
@@ -452,7 +476,8 @@ export class GameStateManager {
     });
 
     // Reset game state
-    await this.updateGameState({
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
       currentRound: 'pre-show',
       currentQuestion: null,
       activeTeam: null,
@@ -463,10 +488,15 @@ export class GameStateManager {
       logoOnly: true,
       questionRevealed: false,
       revealMode: 'one-by-one',
-      guessMode: false
+      guessMode: false,
+      // Timer state
+      timerActive: false,
+      timerStartTime: null,
+      timerDuration: 52
     });
+    console.log('GameState: Game state reset in Firestore.');
 
-    // Reset team scores
+    // Reset team scores and dugout counts
     const teams = ['red', 'green', 'blue'];
     for (const teamId of teams) {
       const teamRef = doc(db, 'teams', teamId);

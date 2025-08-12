@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom 3D Transform Utilities */
+.perspective-1000 {
+  perspective: 1000px;
+}
+.transform-style-preserve-3d {
+  transform-style: preserve-3d;
+}
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

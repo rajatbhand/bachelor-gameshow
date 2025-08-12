@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
+import Papa from 'papaparse';
 
 export default function ControlPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -277,73 +278,86 @@ export default function ControlPage() {
 
   const handleCsvUpload = async () => {
     if (!csvFile) return;
-    
+
+    // Add a confirmation dialog
+    if (!confirm('Are you sure you want to upload this CSV? This will DELETE all existing questions and replace them with the new set.')) {
+      return;
+    }
+
     setLoading(true);
     try {
-      const text = await csvFile.text();
-      const lines = text.split('\n');
-      const questions: Question[] = [];
-      
-      // Skip header row
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        
-        const columns = line.split(',');
-        if (columns.length < 4) continue;
-        
-        const questionId = columns[0];
-        const questionText = columns[1];
-        const answerCount = parseInt(columns[2]) || 10;
-        
-        const answers = [];
-        for (let j = 0; j < answerCount; j++) {
-          const answerText = columns[3 + j * 2] || '';
-          const answerValue = parseInt(columns[4 + j * 2]) || 0;
-          
-          if (answerText) {
-            answers.push({
-              id: `${questionId}_answer_${j + 1}`,
-              text: answerText,
-              value: answerValue,
-              revealed: false,
-              attribution: null
+      // First, clear all existing questions from Firebase
+      await gameStateManager.clearAllQuestions();
+      console.log('Control: All existing questions have been cleared.');
+
+      Papa.parse(csvFile, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          const questions: Question[] = [];
+          for (const row of results.data as any[]) {
+            const questionId = row.QuestionID;
+            const questionText = row.QuestionText;
+            const answerCount = parseInt(row.AnswerCount) || 10;
+
+            if (!questionId || !questionText) {
+              console.warn('Skipping invalid row:', row);
+              continue;
+            }
+
+            const answers = [];
+            for (let i = 1; i <= answerCount; i++) {
+              const answerText = row[`Answer${i}`];
+              const answerValue = parseInt(row[`Value${i}`]) || 0;
+
+              if (answerText) {
+                answers.push({
+                  id: `${questionId}_answer_${i}`,
+                  text: answerText.trim(),
+                  value: answerValue,
+                  revealed: false,
+                  attribution: null
+                });
+              }
+            }
+
+            questions.push({
+              id: questionId.trim(),
+              text: questionText.trim(),
+              answers,
+              answerCount: answers.length // Use the actual number of parsed answers
             });
           }
+
+          // Load questions to Firebase
+          for (const question of questions) {
+            await gameStateManager.addQuestion(question);
+          }
+
+          // Refresh the loaded questions list
+          const { collection, getDocs } = await import('firebase/firestore');
+          const { db } = await import('@/lib/firebase');
+          const questionsRef = collection(db, 'questions');
+          const querySnapshot = await getDocs(questionsRef);
+          const allQuestions: Question[] = [];
+          querySnapshot.forEach((doc) => {
+            allQuestions.push(doc.data() as Question);
+          });
+          setLoadedQuestions(allQuestions);
+
+          alert(`Successfully loaded ${questions.length} questions!`);
+          setCsvFile(null);
+          setLoading(false);
+        },
+        error: (error) => {
+          console.error('Error parsing CSV:', error);
+          alert('Error parsing CSV. Please check the file format and console for details.');
+          setLoading(false);
         }
-        
-        questions.push({
-          id: questionId,
-          text: questionText,
-          answers,
-          answerCount
-        });
-      }
-      
-      // Load questions to Firebase
-      for (const question of questions) {
-        await gameStateManager.addQuestion(question);
-      }
-      
-      // Refresh the loaded questions list
-      const { collection, getDocs } = await import('firebase/firestore');
-      const { db } = await import('@/lib/firebase');
-      
-      const questionsRef = collection(db, 'questions');
-      const querySnapshot = await getDocs(questionsRef);
-      const allQuestions: Question[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        allQuestions.push(doc.data() as Question);
       });
-      
-      setLoadedQuestions(allQuestions);
-      alert(`Successfully loaded ${questions.length} questions!`);
-      setCsvFile(null);
     } catch (error) {
       console.error('Error uploading CSV:', error);
-      alert('Error uploading CSV. Please check the format.');
-    } finally {
+      alert('An unexpected error occurred during CSV upload.');
       setLoading(false);
     }
   };
@@ -1000,6 +1014,30 @@ export default function ControlPage() {
                 disabled={loading || gameState?.round2BonusApplied}
               >
                 {gameState?.round2BonusApplied ? 'BONUS APPLIED' : 'APPLY ROUND 2 BONUS'}
+              </button>
+            </div>
+
+            {/* Timer Controls */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Timer Controls</h2>
+              <button
+                onClick={() => {
+                  if (gameState?.timerActive) {
+                    // Stop the timer
+                    handleUpdateGameState({ timerActive: false, timerStartTime: null });
+                  } else {
+                    // Start the timer
+                    handleUpdateGameState({ timerActive: true, timerStartTime: Date.now() });
+                  }
+                }}
+                className={`w-full p-3 rounded-lg font-bold text-white ${
+                  gameState?.timerActive
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
+                disabled={loading}
+              >
+                {gameState?.timerActive ? 'STOP 52s TIMER' : 'START 52s TIMER'}
               </button>
             </div>
 

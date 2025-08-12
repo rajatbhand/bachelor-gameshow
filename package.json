@@ -13,18 +13,20 @@
   "dependencies": {
     "firebase": "^10.7.1",
     "next": "14.2.31",
+    "papaparse": "^5.5.3",
     "react": "^18",
     "react-dom": "^18"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/papaparse": "^5.3.16",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
     "eslint-config-next": "14.2.31",
+    "firebase-tools": "^13.4.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5",
-    "firebase-tools": "^13.4.0"
+    "typescript": "^5"
   }
 }
