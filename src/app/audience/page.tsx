@@ -14,10 +14,20 @@ export default function AudiencePage() {
   const [submittedTeam, setSubmittedTeam] = useState<'red' | 'green' | 'blue' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [deviceVoted, setDeviceVoted] = useState(false);
 
   useEffect(() => {
     // Subscribe to game state to check if voting is open
     const unsubscribeGameState = gameStateManager.subscribeToGameState(setGameState);
+    
+    // Check if this device has already voted
+    const hasVoted = localStorage.getItem('bachelor-gameshow-voted');
+    if (hasVoted) {
+      setDeviceVoted(true);
+      setSubmitted(true);
+      setSubmittedTeam(hasVoted as 'red' | 'green' | 'blue');
+    }
+    
     return () => unsubscribeGameState();
   }, []);
 
@@ -44,8 +54,12 @@ export default function AudiencePage() {
         team: formData.team
       });
       
+      // Store the vote in localStorage to prevent multiple submissions from this device
+      localStorage.setItem('bachelor-gameshow-voted', formData.team);
+      
       setSubmitted(true);
       setSubmittedTeam(formData.team);
+      setDeviceVoted(true);
       setFormData({ name: '', phone: '', team: '' });
     } catch {
       setError('Failed to submit. Please try again.');
@@ -59,6 +73,15 @@ export default function AudiencePage() {
   };
 
   const handleSubmitAnother = () => {
+    setSubmitted(false);
+    setSubmittedTeam(null);
+    setDeviceVoted(false);
+    setFormData({ name: '', phone: '', team: '' });
+  };
+
+  const clearDeviceVote = () => {
+    localStorage.removeItem('bachelor-gameshow-voted');
+    setDeviceVoted(false);
     setSubmitted(false);
     setSubmittedTeam(null);
     setFormData({ name: '', phone: '', team: '' });
@@ -80,12 +103,26 @@ export default function AudiencePage() {
           <p className="text-gray-600 mb-6">
             Your team selection has been submitted successfully.
           </p>
-          <button
-            onClick={handleSubmitAnother}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700"
-          >
-            Submit Another Vote
-          </button>
+          {deviceVoted ? (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">
+                You have already voted from this device.
+              </p>
+              <button
+                onClick={clearDeviceVote}
+                className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700"
+              >
+                Clear Device Vote
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleSubmitAnother}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700"
+            >
+              Submit Another Vote
+            </button>
+          )}
         </div>
       </div>
     );
@@ -188,9 +225,9 @@ export default function AudiencePage() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={!gameState?.audienceWindow || loading || !formData.team}
+            disabled={!gameState?.audienceWindow || loading || !formData.team || deviceVoted}
             className={`w-full py-3 rounded-lg font-bold transition-all ${
-              gameState?.audienceWindow && formData.team && !loading
+              gameState?.audienceWindow && formData.team && !loading && !deviceVoted
                 ? 'bg-blue-600 text-white hover:bg-blue-700'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             }`}
@@ -200,6 +237,8 @@ export default function AudiencePage() {
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
                 Submitting...
               </div>
+            ) : deviceVoted ? (
+              'Already Voted from This Device'
             ) : (
               'Submit Team Selection'
             )}
@@ -208,7 +247,7 @@ export default function AudiencePage() {
 
         {/* Footer */}
         <div className="text-center mt-6 text-sm text-gray-500">
-          <p>One submission per phone number</p>
+          <p>One submission per device</p>
           <p>Voting window controlled by game host</p>
         </div>
       </div>
