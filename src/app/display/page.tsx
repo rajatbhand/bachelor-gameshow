@@ -1,7 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
+
+// Custom hook to store the previous value of a state or prop
+function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T>();
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref.current;
+}
 
 export default function DisplayPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -13,6 +22,68 @@ export default function DisplayPage() {
     amount: 0,
     team: ''
   });
+
+  // --- AUDIO SETUP START ---
+  const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
+  const teamAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const hostAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // Initialize audio elements on the client
+    bigXAudioRef.current = new Audio('/sounds/big-x.mp3');
+    teamAnswerAudioRef.current = new Audio('/sounds/team-answer-reveal.mp3');
+    hostAnswerAudioRef.current = new Audio('/sounds/host-answer-reveal.mp3');
+
+    // Preload audio files for instant playback
+    const preloadAudio = async () => {
+      try {
+        if (bigXAudioRef.current) await bigXAudioRef.current.load();
+        if (teamAnswerAudioRef.current) await teamAnswerAudioRef.current.load();
+        if (hostAnswerAudioRef.current) await hostAnswerAudioRef.current.load();
+      } catch (error) {
+        console.log('Display Audio: Could not preload sounds. They will load on first play.');
+      }
+    };
+    preloadAudio();
+  }, []);
+
+  const playSound = async (audioRef: React.RefObject<HTMLAudioElement>) => {
+    if (!audioRef.current) return;
+    try {
+      audioRef.current.currentTime = 0;
+      await audioRef.current.play();
+    } catch (error) {
+      console.error('Display Audio: Error playing sound:', error);
+    }
+  };
+
+  const prevGameState = usePrevious(gameState);
+  const prevCurrentQuestion = usePrevious(currentQuestion);
+
+  useEffect(() => {
+    // Play Big X sound when it's toggled on
+    if (gameState && prevGameState && !prevGameState.bigX && gameState.bigX) {
+      playSound(bigXAudioRef);
+    }
+
+    // Play sound when an answer is revealed
+    if (currentQuestion && prevCurrentQuestion && currentQuestion.id === prevCurrentQuestion.id) {
+      for (let i = 0; i < currentQuestion.answers.length; i++) {
+        const currentAnswer = currentQuestion.answers[i];
+        const prevAnswer = prevCurrentQuestion.answers[i];
+
+        if (prevAnswer && !prevAnswer.revealed && currentAnswer.revealed) {
+          // This answer was just revealed
+          if (currentAnswer.attribution === 'host' || currentAnswer.attribution === 'neutral') {
+            playSound(hostAnswerAudioRef);
+          } else if (['red', 'green', 'blue'].includes(currentAnswer.attribution!)) {
+            playSound(teamAnswerAudioRef);
+          }
+        }
+      }
+    }
+  }, [gameState, currentQuestion, prevGameState, prevCurrentQuestion]);
+  // --- AUDIO SETUP END ---
 
   // Team colors mapping
   const TEAM_COLORS: { [key: string]: string } = {
