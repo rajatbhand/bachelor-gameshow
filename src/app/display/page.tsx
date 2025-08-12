@@ -11,34 +11,25 @@ export default function DisplayPage() {
   const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
 
   useEffect(() => {
-    console.log('Display page: Initializing...');
-    
     // Initialize game
-    gameStateManager.initializeGame().then(() => {
-      console.log('Display page: Game initialized');
-    }).catch((error) => {
+    gameStateManager.initializeGame().catch((error) => {
       console.error('Display page: Error initializing game:', error);
     });
 
     // Subscribe to real-time updates
     const unsubscribeGameState = gameStateManager.subscribeToGameState((state) => {
-      console.log('Display page: Game state updated:', state);
       setGameState(state);
     });
     
     const unsubscribeTeams = gameStateManager.subscribeToTeams((teamsData) => {
-      console.log('Display page: Teams updated:', teamsData);
       setTeams(teamsData);
     });
     
     const unsubscribeQuestion = gameStateManager.subscribeToCurrentQuestion((question) => {
-      console.log('Display page: Question updated:', question?.id, question?.text);
-      console.log('Display page: Question answers:', question?.answers?.map(a => ({ id: a.id, revealed: a.revealed, attribution: a.attribution })));
       setCurrentQuestion(question);
     });
 
     const unsubscribeAudience = gameStateManager.subscribeToAudienceMembers((members) => {
-      console.log('Display page: Audience members updated:', members);
       setAudienceMembers(members);
     });
 
@@ -49,8 +40,6 @@ export default function DisplayPage() {
       unsubscribeAudience();
     };
   }, []);
-
-  console.log('Display page: Current state:', { gameState, teams, currentQuestion });
 
   // Show logo screen
   if (gameState?.logoOnly) {
@@ -78,12 +67,7 @@ export default function DisplayPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Debug Info */}
-      <div className="bg-red-900 p-2 text-xs">
-        Debug: GameState={JSON.stringify(gameState)}, Teams={teams.length}, Question={currentQuestion?.id || 'none'}
-      </div>
-      
-             {/* Header with Round and Teams */}
+      {/* Header with Round and Teams */}
        <div className="bg-gray-800 p-4">
          <div className="flex justify-between items-center">
            <div className="text-2xl font-bold">
