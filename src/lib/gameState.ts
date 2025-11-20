@@ -33,6 +33,15 @@ export interface GameState {
   timerActive: boolean;
   timerStartTime: number | null;
   timerDuration: number;
+  // Round 1 strike tracking (strikes per team/panelist)
+  round1Strikes: {
+    red: number;
+    green: number;
+    blue: number;
+  };
+  // Round 1 state
+  round1Active: boolean; // Whether Round 1 gameplay is active
+  round1CurrentGuessingTeam: 'red' | 'green' | 'blue' | null; // Which team is currently making a guess
 }
 
 export interface Team {
@@ -101,7 +110,15 @@ export class GameStateManager {
         // Timer state
         timerActive: false,
         timerStartTime: null,
-        timerDuration: 52
+        timerDuration: 52,
+        // Round 1 state
+        round1Strikes: {
+          red: 0,
+          green: 0,
+          blue: 0
+        },
+        round1Active: false,
+        round1CurrentGuessingTeam: null
       };
       
       await setDoc(gameStateRef, initialState);
@@ -492,7 +509,15 @@ export class GameStateManager {
       // Timer state
       timerActive: false,
       timerStartTime: null,
-      timerDuration: 52
+      timerDuration: 52,
+      // Round 1 state
+      round1Strikes: {
+        red: 0,
+        green: 0,
+        blue: 0
+      },
+      round1Active: false,
+      round1CurrentGuessingTeam: null
     });
     console.log('GameState: Game state reset in Firestore.');
 
@@ -541,6 +566,163 @@ export class GameStateManager {
   cleanup(): void {
     this.listeners.forEach(unsubscribe => unsubscribe());
     this.listeners.clear();
+  }
+
+  // ========== ROUND 1 GAMEPLAY METHODS ==========
+
+  /**
+   * Start Round 1 gameplay - initializes Round 1 state
+   */
+  async startRound1(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
+      currentRound: 'round1',
+      round1Active: true,
+      round1Strikes: {
+        red: 0,
+        green: 0,
+        blue: 0
+      },
+      round1CurrentGuessingTeam: null,
+      questionRevealed: true, // Question should be visible in Round 1
+      revealMode: 'one-by-one',
+      lastUpdated: serverTimestamp()
+    });
+  }
+
+  /**
+   * Select which team is currently making a guess in Round 1
+   */
+  async selectRound1GuessingTeam(team: 'red' | 'green' | 'blue'): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+    
+    if (gameStateDoc.exists()) {
+      const state = gameStateDoc.data() as GameState;
+      
+      // Only allow if Round 1 is active and team doesn't have 2 strikes yet
+      if (state.currentRound === 'round1' && state.round1Active) {
+        if (state.round1Strikes[team] < 2) {
+          await updateDoc(gameStateRef, {
+            round1CurrentGuessingTeam: team,
+            activeTeam: team,
+            lastUpdated: serverTimestamp()
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Evaluate a guess in Round 1 - operator marks it as correct or incorrect
+   * @param isCorrect - Whether the guess was correct
+   * @param matchingAnswerId - If correct, the ID of the answer that matches the guess (optional, operator can select)
+   */
+  async evaluateRound1Guess(
+    isCorrect: boolean,
+    matchingAnswerId?: string,
+    manualAmount?: number
+  ): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+    
+    if (!gameStateDoc.exists()) return;
+    
+    const state = gameStateDoc.data() as GameState;
+    
+    // Only process if Round 1 is active and there's a current guessing team
+    if (state.currentRound !== 'round1' || !state.round1Active || !state.round1CurrentGuessingTeam) {
+      return;
+    }
+
+    const guessingTeam = state.round1CurrentGuessingTeam;
+    const currentStrikes = state.round1Strikes[guessingTeam];
+
+    if (isCorrect && matchingAnswerId && state.currentQuestion) {
+      // Correct guess - reveal the matching answer
+      // Find the answer in the question
+      const questionRef = doc(db, 'questions', state.currentQuestion);
+      const questionDoc = await getDoc(questionRef);
+      
+      if (questionDoc.exists()) {
+        const question = questionDoc.data() as Question;
+        const answerToReveal = question.answers.find(a => a.id === matchingAnswerId);
+        
+        if (answerToReveal && !answerToReveal.revealed) {
+          // Reveal the answer and award points to the team
+          await this.revealAnswer(
+            state.currentQuestion,
+            matchingAnswerId,
+            guessingTeam,
+            manualAmount
+          );
+        }
+      }
+    } else if (!isCorrect) {
+      // Wrong guess - add a strike
+      const newStrikes = currentStrikes + 1;
+      const updatedStrikes = {
+        ...state.round1Strikes,
+        [guessingTeam]: newStrikes
+      };
+
+      // Check if this team is now out (2 strikes)
+      const isTeamOut = newStrikes >= 2;
+
+      // Check if all teams are out (all have 2 strikes)
+      const allTeamsOut = updatedStrikes.red >= 2 && 
+                          updatedStrikes.green >= 2 && 
+                          updatedStrikes.blue >= 2;
+
+      await updateDoc(gameStateRef, {
+        round1Strikes: updatedStrikes,
+        round1CurrentGuessingTeam: null, // Clear current guessing team after evaluation
+        activeTeam: null,
+        round1Active: !allTeamsOut, // End Round 1 if all teams are out
+        lastUpdated: serverTimestamp()
+      });
+
+      // If all teams are out, Round 1 ends
+      if (allTeamsOut) {
+        console.log('Round 1 ended: All teams have 2 strikes');
+      }
+    } else {
+      // Correct guess but no matching answer ID provided - just clear the guessing team
+      await updateDoc(gameStateRef, {
+        round1CurrentGuessingTeam: null,
+        activeTeam: null,
+        lastUpdated: serverTimestamp()
+      });
+    }
+  }
+
+  /**
+   * Manually end Round 1 (operator can force end)
+   */
+  async endRound1(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
+      round1Active: false,
+      round1CurrentGuessingTeam: null,
+      activeTeam: null,
+      lastUpdated: serverTimestamp()
+    });
+  }
+
+  /**
+   * Reset Round 1 strikes (useful for restarting Round 1)
+   */
+  async resetRound1Strikes(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
+      round1Strikes: {
+        red: 0,
+        green: 0,
+        blue: 0
+      },
+      round1CurrentGuessingTeam: null,
+      lastUpdated: serverTimestamp()
+    });
   }
 }
 

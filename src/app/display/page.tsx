@@ -218,26 +218,51 @@ export default function DisplayPage() {
             Round: {gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}
           </div>
           <div className="flex space-x-8">
-            {teams.map((team) => (
-              <div key={team.id} className="text-center">
-                <div 
-                  className="text-lg font-bold"
-                  style={{ color: team.color }}
-                >
-                  {team.name}
-                </div>
-                <div className="text-3xl font-bold">₹{team.score.toLocaleString()}</div>
-                <div className="text-sm text-gray-400">
-                  Dugout: {team.dugoutCount} 
-                  {audienceMembers.length > 0 && (
-                    <span className="text-yellow-400"> ({audienceMembers.filter(m => m.team === team.id).length} votes)</span>
+            {teams.map((team) => {
+              const strikes = gameState?.round1Strikes?.[team.id] || 0;
+              const isOut = strikes >= 2;
+              return (
+                <div key={team.id} className="text-center">
+                  <div 
+                    className="text-lg font-bold"
+                    style={{ color: team.color }}
+                  >
+                    {team.name}
+                  </div>
+                  <div className="text-3xl font-bold">₹{team.score.toLocaleString()}</div>
+                  <div className="text-sm text-gray-400">
+                    Dugout: {team.dugoutCount} 
+                    {audienceMembers.length > 0 && (
+                      <span className="text-yellow-400"> ({audienceMembers.filter(m => m.team === team.id).length} votes)</span>
+                    )}
+                  </div>
+                  {/* Round 1 Strikes Display */}
+                  {gameState?.currentRound === 'round1' && (
+                    <div className="mt-2 flex items-center justify-center space-x-1">
+                      <span className={strikes >= 1 ? 'text-gray-400 text-xl' : 'text-red-500 text-xl'}>❤️</span>
+                      <span className={strikes >= 2 ? 'text-gray-400 text-xl' : 'text-red-500 text-xl'}>❤️</span>
+                      {isOut && (
+                        <span className="ml-2 text-xs text-red-400 font-bold">OUT</span>
+                      )}
+                    </div>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         
+        {/* Round 1 Current Guessing Team */}
+        {gameState?.currentRound === 'round1' && gameState?.round1Active && gameState?.round1CurrentGuessingTeam && (
+          <div className="mt-4 text-center">
+            <div className="bg-blue-600 text-white px-4 py-2 rounded-lg inline-block">
+              <span className="font-bold">
+                🎤 {teams.find(t => t.id === gameState.round1CurrentGuessingTeam)?.name.toUpperCase()} IS GUESSING
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Audience Voting Status */}
         {gameState?.audienceWindow && (
           <div className="mt-4 text-center">
