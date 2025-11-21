@@ -1,17 +1,19 @@
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  onSnapshot, 
-  collection, 
-  addDoc, 
+import {
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  collection,
+  addDoc,
   updateDoc,
   deleteDoc,
   query,
   orderBy,
   serverTimestamp,
   getDocs,
-  writeBatch
+  writeBatch,
+  where,
+  documentId
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -42,6 +44,15 @@ export interface GameState {
   // Round 1 state
   round1Active: boolean; // Whether Round 1 gameplay is active
   round1CurrentGuessingTeam: 'red' | 'green' | 'blue' | null; // Which team is currently making a guess
+  // Round 2 state
+  round2State?: {
+    phase: 'selection' | 'question' | 'reveal';
+    availableQuestionIds: string[];
+    activeQuestionId: string | null;
+    timerDuration: number;
+  };
+  round2CurrentTeam?: 'red' | 'green' | 'blue' | null; // Which team is currently playing Round 2
+  round2UsedQuestionIds?: string[]; // Track questions used across all teams
 }
 
 export interface Team {
@@ -92,7 +103,7 @@ export class GameStateManager {
   async initializeGame(): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
     const gameStateDoc = await getDoc(gameStateRef);
-    
+
     if (!gameStateDoc.exists()) {
       const initialState: GameState = {
         currentRound: 'pre-show',
@@ -120,7 +131,7 @@ export class GameStateManager {
         round1Active: false,
         round1CurrentGuessingTeam: null
       };
-      
+
       await setDoc(gameStateRef, initialState);
     }
 
@@ -129,7 +140,7 @@ export class GameStateManager {
     for (const teamId of teams) {
       const teamRef = doc(db, 'teams', teamId);
       const teamDoc = await getDoc(teamRef);
-      
+
       if (!teamDoc.exists()) {
         const teamData: Team = {
           id: teamId as 'red' | 'green' | 'blue',
@@ -146,7 +157,7 @@ export class GameStateManager {
   // Listen to game state changes
   subscribeToGameState(callback: (state: GameState) => void): () => void {
     const gameStateRef = doc(db, 'gameState', 'current');
-    
+
     const unsubscribe = onSnapshot(gameStateRef, (doc) => {
       if (doc.exists()) {
         callback(doc.data() as GameState);
@@ -161,7 +172,7 @@ export class GameStateManager {
   subscribeToTeams(callback: (teams: Team[]) => void): () => void {
     const teamsRef = collection(db, 'teams');
     const q = query(teamsRef, orderBy('id'));
-    
+
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const teams: Team[] = [];
       querySnapshot.forEach((docSnapshot) => {
@@ -178,7 +189,7 @@ export class GameStateManager {
   subscribeToAudienceMembers(callback: (members: AudienceMember[]) => void): () => void {
     const audienceRef = collection(db, 'audience');
     const q = query(audienceRef, orderBy('submittedAt', 'desc'));
-    
+
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const members: AudienceMember[] = [];
       querySnapshot.forEach((docSnapshot) => {
@@ -195,19 +206,19 @@ export class GameStateManager {
   subscribeToCurrentQuestion(callback: (question: Question | null) => void): () => void {
     const gameStateRef = doc(db, 'gameState', 'current');
     let currentQuestionUnsubscribe: (() => void) | null = null;
-    
+
     const unsubscribe = onSnapshot(gameStateRef, async (docSnapshot) => {
       if (docSnapshot.exists()) {
         const state = docSnapshot.data() as GameState;
         console.log('GameStateManager: Current question changed to:', state.currentQuestion);
-        
+
         // Clean up previous question listener if it exists
         if (currentQuestionUnsubscribe) {
           console.log('GameStateManager: Cleaning up previous question listener');
           currentQuestionUnsubscribe();
           currentQuestionUnsubscribe = null;
         }
-        
+
         if (state.currentQuestion) {
           console.log('GameStateManager: Setting up new question listener for:', state.currentQuestion);
           // Listen to the specific question document for real-time updates
@@ -223,7 +234,7 @@ export class GameStateManager {
               callback(null);
             }
           });
-          
+
           // Store the question listener for cleanup
           this.listeners.set('currentQuestion', currentQuestionUnsubscribe);
         } else {
@@ -234,7 +245,7 @@ export class GameStateManager {
     });
 
     this.listeners.set('gameState', unsubscribe);
-    
+
     // Return cleanup function that handles both listeners
     return () => {
       if (currentQuestionUnsubscribe) {
@@ -257,7 +268,7 @@ export class GameStateManager {
   async updateTeamScore(teamId: 'red' | 'green' | 'blue', scoreChange: number): Promise<void> {
     const teamRef = doc(db, 'teams', teamId);
     const teamDoc = await getDoc(teamRef);
-    
+
     if (teamDoc.exists()) {
       const currentScore = teamDoc.data().score || 0;
       await updateDoc(teamRef, {
@@ -270,15 +281,15 @@ export class GameStateManager {
   async revealAnswer(questionId: string, answerId: string, attribution: 'red' | 'green' | 'blue' | 'host' | 'neutral', manualAmount?: number): Promise<void> {
     const questionRef = doc(db, 'questions', questionId);
     const questionDoc = await getDoc(questionRef);
-    
+
     if (questionDoc.exists()) {
       const question = questionDoc.data() as Question;
       const answerToReveal = question.answers.find(answer => answer.id === answerId);
-      
+
       if (answerToReveal) {
         // Use manual amount if provided, otherwise use original value
         const finalValue = manualAmount !== undefined ? manualAmount : answerToReveal.value;
-        
+
         const updatedAnswers = question.answers.map(answer => {
           if (answer.id === answerId) {
             return {
@@ -291,9 +302,9 @@ export class GameStateManager {
           }
           return answer;
         });
-        
+
         await updateDoc(questionRef, { answers: updatedAnswers });
-        
+
         // Add score to team if it's a team attribution (not host or neutral)
         if (attribution === 'red' || attribution === 'green' || attribution === 'blue') {
           await this.updateTeamScore(attribution, finalValue);
@@ -306,11 +317,11 @@ export class GameStateManager {
   async hideAnswer(questionId: string, answerId: string): Promise<void> {
     const questionRef = doc(db, 'questions', questionId);
     const questionDoc = await getDoc(questionRef);
-    
+
     if (questionDoc.exists()) {
       const question = questionDoc.data() as Question;
       const answerToHide = question.answers.find(answer => answer.id === answerId);
-      
+
       if (answerToHide && answerToHide.revealed && answerToHide.attribution) {
         const updatedAnswers = question.answers.map(answer => {
           if (answer.id === answerId) {
@@ -319,15 +330,16 @@ export class GameStateManager {
               revealed: false,
               attribution: null
             };
-            // Remove revealedAt field entirely instead of setting to undefined
-            delete (resetAnswer as any).revealedAt;
-            return resetAnswer;
+            // Remove revealedAt field entirely
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { revealedAt: _revealedAt, ...rest } = resetAnswer;
+            return rest;
           }
           return answer;
         });
-        
+
         await updateDoc(questionRef, { answers: updatedAnswers });
-        
+
         // Remove score from team if it was a team attribution
         if (answerToHide.attribution === 'red' || answerToHide.attribution === 'green' || answerToHide.attribution === 'blue') {
           await this.updateTeamScore(answerToHide.attribution, -answerToHide.value);
@@ -349,32 +361,32 @@ export class GameStateManager {
     const audienceRef = collection(db, 'audience');
     const q = query(audienceRef, orderBy('submittedAt', 'desc'));
     const querySnapshot = await getDocs(q);
-    
+
     const members: AudienceMember[] = [];
     querySnapshot.forEach((docSnapshot) => {
       members.push({ id: docSnapshot.id, ...docSnapshot.data() } as AudienceMember);
     });
-    
+
     return members;
   }
 
   // Get audience voting results and update team dugout counts
   async updateAudienceVotingResults(): Promise<void> {
     const members = await this.getAudienceMembers();
-    
+
     // Count votes per team
     const voteCounts = {
       red: 0,
       green: 0,
       blue: 0
     };
-    
+
     members.forEach(member => {
       if (member.team in voteCounts) {
         voteCounts[member.team as keyof typeof voteCounts]++;
       }
     });
-    
+
     // Update team dugout counts
     const teams = ['red', 'green', 'blue'] as const;
     for (const teamId of teams) {
@@ -387,28 +399,28 @@ export class GameStateManager {
   async applyRound2Bonus(): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
     const gameStateDoc = await getDoc(gameStateRef);
-    
+
     if (gameStateDoc.exists()) {
       const state = gameStateDoc.data() as GameState;
       if (state.currentQuestion) {
         const questionRef = doc(db, 'questions', state.currentQuestion);
         const questionDoc = await getDoc(questionRef);
-        
+
         if (questionDoc.exists()) {
           const question = questionDoc.data() as Question;
-          const correctAnswers = question.answers.filter(a => 
+          const correctAnswers = question.answers.filter(a =>
             a.revealed && (a.attribution === 'red' || a.attribution === 'green' || a.attribution === 'blue')
           );
-          
+
           if (correctAnswers.length >= 3) {
             const multiplier = correctAnswers.length >= 4 ? 3 : 2;
             const totalBonus = correctAnswers.reduce((sum, answer) => sum + answer.value, 0) * multiplier;
-            
+
             // Apply bonus to active team
             if (state.activeTeam && state.activeTeam !== 'host') {
               await this.updateTeamScore(state.activeTeam, totalBonus);
             }
-            
+
             await this.updateGameState({ round2BonusApplied: true });
           }
         }
@@ -426,17 +438,17 @@ export class GameStateManager {
   async revealAllAnswers(questionId: string): Promise<void> {
     const questionRef = doc(db, 'questions', questionId);
     const questionDoc = await getDoc(questionRef);
-    
+
     if (questionDoc.exists()) {
       const question = questionDoc.data() as Question;
-      
+
       const updatedAnswers = question.answers.map(answer => ({
         ...answer,
         revealed: true,
         attribution: 'neutral',
         revealedAt: new Date().toISOString()
       }));
-      
+
       await updateDoc(questionRef, { answers: updatedAnswers });
     }
   }
@@ -445,21 +457,22 @@ export class GameStateManager {
   async hideAllAnswers(questionId: string): Promise<void> {
     const questionRef = doc(db, 'questions', questionId);
     const questionDoc = await getDoc(questionRef);
-    
+
     if (questionDoc.exists()) {
       const question = questionDoc.data() as Question;
-      
+
       const updatedAnswers = question.answers.map(answer => {
         const resetAnswer = {
           ...answer,
           revealed: false,
           attribution: null
         };
-        // Remove revealedAt field entirely instead of setting to undefined
-        delete (resetAnswer as any).revealedAt;
-        return resetAnswer;
+        // Remove revealedAt field entirely
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { revealedAt: _revealedAt, ...rest } = resetAnswer;
+        return rest;
       });
-      
+
       await updateDoc(questionRef, { answers: updatedAnswers });
     }
   }
@@ -482,7 +495,7 @@ export class GameStateManager {
   // Reset game
   async resetGame(): Promise<void> {
     console.log('GameStateManager: Starting game reset...');
-    
+
     // Clear any cached question data first
     this.listeners.forEach((unsubscribe, key) => {
       if (key === 'currentQuestion') {
@@ -540,9 +553,10 @@ export class GameStateManager {
           revealed: false,
           attribution: null
         };
-        // Remove revealedAt field entirely instead of setting to undefined
-        delete (resetAnswer as any).revealedAt;
-        return resetAnswer;
+        // Remove revealedAt field entirely
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { revealedAt: _revealedAt, ...rest } = resetAnswer;
+        return rest;
       });
       console.log(`GameStateManager: Resetting question ${question.id} with ${resetAnswers.length} answers`);
       return updateDoc(docSnapshot.ref, { answers: resetAnswers });
@@ -558,7 +572,7 @@ export class GameStateManager {
 
     // Force a small delay to ensure Firebase updates are processed
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     console.log('GameStateManager: Game reset completed');
   }
 
@@ -586,6 +600,14 @@ export class GameStateManager {
       round1CurrentGuessingTeam: null,
       questionRevealed: true, // Question should be visible in Round 1
       revealMode: 'one-by-one',
+      // Reset any leftover Round 2 state
+      round2State: null,
+      round2CurrentTeam: null,
+      round2UsedQuestionIds: [],
+      // Reset common fields
+      currentQuestion: null,
+      activeTeam: null,
+      timerActive: false,
       lastUpdated: serverTimestamp()
     });
   }
@@ -596,10 +618,10 @@ export class GameStateManager {
   async selectRound1GuessingTeam(team: 'red' | 'green' | 'blue'): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
     const gameStateDoc = await getDoc(gameStateRef);
-    
+
     if (gameStateDoc.exists()) {
       const state = gameStateDoc.data() as GameState;
-      
+
       // Only allow if Round 1 is active and team doesn't have 2 strikes yet
       if (state.currentRound === 'round1' && state.round1Active) {
         if (state.round1Strikes[team] < 2) {
@@ -625,11 +647,11 @@ export class GameStateManager {
   ): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
     const gameStateDoc = await getDoc(gameStateRef);
-    
+
     if (!gameStateDoc.exists()) return;
-    
+
     const state = gameStateDoc.data() as GameState;
-    
+
     // Only process if Round 1 is active and there's a current guessing team
     if (state.currentRound !== 'round1' || !state.round1Active || !state.round1CurrentGuessingTeam) {
       return;
@@ -643,11 +665,11 @@ export class GameStateManager {
       // Find the answer in the question
       const questionRef = doc(db, 'questions', state.currentQuestion);
       const questionDoc = await getDoc(questionRef);
-      
+
       if (questionDoc.exists()) {
         const question = questionDoc.data() as Question;
         const answerToReveal = question.answers.find(a => a.id === matchingAnswerId);
-        
+
         if (answerToReveal && !answerToReveal.revealed) {
           // Reveal the answer and award points to the team
           await this.revealAnswer(
@@ -666,13 +688,10 @@ export class GameStateManager {
         [guessingTeam]: newStrikes
       };
 
-      // Check if this team is now out (2 strikes)
-      const isTeamOut = newStrikes >= 2;
-
       // Check if all teams are out (all have 2 strikes)
-      const allTeamsOut = updatedStrikes.red >= 2 && 
-                          updatedStrikes.green >= 2 && 
-                          updatedStrikes.blue >= 2;
+      const allTeamsOut = updatedStrikes.red >= 2 &&
+        updatedStrikes.green >= 2 &&
+        updatedStrikes.blue >= 2;
 
       await updateDoc(gameStateRef, {
         round1Strikes: updatedStrikes,
@@ -724,6 +743,163 @@ export class GameStateManager {
       lastUpdated: serverTimestamp()
     });
   }
+
+  // ========== ROUND 2 GAMEPLAY METHODS ==========
+
+  /**
+   * Start Round 2 - Initialize Round 2 state
+   */
+  async startRound2(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
+      currentRound: 'round2',
+      round2State: {
+        phase: 'selection',
+        availableQuestionIds: [],
+        activeQuestionId: null,
+        timerDuration: 90
+      },
+      round2CurrentTeam: null, // Initialize with no team selected
+      round2UsedQuestionIds: [], // Initialize empty array for tracking
+      // Reset common state
+      currentQuestion: null,
+      activeTeam: null,
+      timerActive: false,
+      questionRevealed: false,
+      revealMode: 'one-by-one',
+      lastUpdated: serverTimestamp()
+    });
+  }
+
+  /**
+   * Select which team is playing Round 2
+   */
+  async selectRound2Team(team: 'red' | 'green' | 'blue'): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+
+    if (gameStateDoc.exists()) {
+      const state = gameStateDoc.data() as GameState;
+
+      if (state.currentRound === 'round2') {
+        await updateDoc(gameStateRef, {
+          round2CurrentTeam: team,
+          activeTeam: team, // Set activeTeam for scoring
+          lastUpdated: serverTimestamp()
+        });
+      }
+    }
+  }
+
+
+  /**
+ * Set available questions for Round 2 selection phase
+ */
+  async setRound2AvailableQuestions(questionIds: string[]): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+
+    if (gameStateDoc.exists()) {
+      const state = gameStateDoc.data() as GameState;
+
+      // Filter out questions already used by other teams
+      const usedQuestions = state.round2UsedQuestionIds || [];
+      const availableQuestions = questionIds.filter(id => !usedQuestions.includes(id));
+
+      await updateDoc(gameStateRef, {
+        'round2State.availableQuestionIds': availableQuestions.slice(0, 3), // Take first 3 available
+        'round2State.phase': 'selection',
+        lastUpdated: serverTimestamp()
+      });
+    }
+  }
+
+  /**
+   * Select a question in Round 2 to play
+   */
+  async selectRound2Question(questionId: string): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+
+    // Also set this as the main currentQuestion so other components can use it
+    await updateDoc(gameStateRef, {
+      'round2State.activeQuestionId': questionId,
+      'round2State.phase': 'question',
+      currentQuestion: questionId,
+      questionRevealed: true, // Show the question text
+      revealMode: 'one-by-one', // Answers hidden initially
+      lastUpdated: serverTimestamp()
+    });
+  }
+
+  /**
+   * Start Round 2 Timer (90s)
+   */
+  async startRound2Timer(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
+      timerActive: true,
+      timerStartTime: Date.now(),
+      timerDuration: 90,
+      lastUpdated: serverTimestamp()
+    });
+  }
+
+  /**
+ * End Round 2 Timer - Auto-resets to selection phase for next team
+ */
+  async endRound2Timer(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+
+    if (gameStateDoc.exists()) {
+      const state = gameStateDoc.data() as GameState;
+
+      // Add current question to used questions list
+      const usedQuestions = state.round2UsedQuestionIds || [];
+      if (state.currentQuestion && !usedQuestions.includes(state.currentQuestion)) {
+        usedQuestions.push(state.currentQuestion);
+      }
+
+      await updateDoc(gameStateRef, {
+        timerActive: false,
+        timerStartTime: null,
+        round2State: {
+          ...state.round2State,
+          phase: 'selection',           // Auto-reset to selection for next team
+          availableQuestionIds: [],     // Clear for next team
+          activeQuestionId: null
+        },
+        round2UsedQuestionIds: usedQuestions,  // Update used questions
+        round2CurrentTeam: null,        // Clear team so operator must select next
+        activeTeam: null,               // Clear active team
+        currentQuestion: null,          // Clear current question
+        lastUpdated: serverTimestamp()
+      });
+    }
+  }
+
+
+  /**
+   * Get specific questions by IDs (for Round 2 selection display)
+   */
+  async getQuestionsByIds(ids: string[]): Promise<Question[]> {
+    if (!ids || ids.length === 0) return [];
+
+    const questions: Question[] = [];
+    // Firestore 'in' query is limited to 10 items, which is fine for 3 items
+    const q = query(collection(db, 'questions'), where(documentId(), 'in', ids));
+
+    const querySnapshot = await getDocs(q);
+    querySnapshot.forEach((docSnapshot) => {
+      questions.push({
+        id: docSnapshot.id,
+        ...docSnapshot.data()
+      } as Question);
+    });
+
+    return questions;
+  }
 }
 
 export const gameStateManager = GameStateManager.getInstance();
+

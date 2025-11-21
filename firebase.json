@@ -1,6 +1,5 @@
 {
   "hosting": {
-    "site": "bachelore-gameshow",
     "public": "out",
     "ignore": [
       "firebase.json",

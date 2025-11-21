@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
+// import { doc, getDoc } from 'firebase/firestore'; // Not needed as we use manager
 
 // Custom hook to store the previous value of a state or prop
 function usePrevious<T>(value: T): T | undefined {
@@ -30,6 +31,29 @@ export default function DisplayPage() {
 
   // --- CARD DECK LOGIC ---
   const [shuffledDeck, setShuffledDeck] = useState<string[]>([]);
+
+  // --- ROUND 2 STATE ---
+  const [round2Options, setRound2Options] = useState<Question[]>([]);
+
+  useEffect(() => {
+    const fetchRound2Options = async () => {
+      if (gameState?.currentRound === 'round2' &&
+        gameState.round2State?.phase === 'selection' &&
+        gameState.round2State.availableQuestionIds.length > 0) {
+
+        try {
+          const questions = await gameStateManager.getQuestionsByIds(gameState.round2State.availableQuestionIds);
+          setRound2Options(questions);
+        } catch (error) {
+          console.error("Error fetching Round 2 options:", error);
+        }
+      } else {
+        setRound2Options([]);
+      }
+    };
+
+    fetchRound2Options();
+  }, [gameState?.currentRound, gameState?.round2State?.phase, gameState?.round2State?.availableQuestionIds]);
 
   useEffect(() => {
     if (gameState?.timerActive) {
@@ -115,7 +139,7 @@ export default function DisplayPage() {
       timerRef.current = setInterval(() => {
         const elapsed = Math.floor((Date.now() - gameState.timerStartTime!) / 1000);
         const remaining = Math.max(0, gameState.timerDuration - elapsed);
-        
+
         setTimeLeft(remaining);
 
         // Flip cards based on elapsed time
@@ -161,11 +185,11 @@ export default function DisplayPage() {
     const unsubscribeGameState = gameStateManager.subscribeToGameState((state) => {
       setGameState(state);
     });
-    
+
     const unsubscribeTeams = gameStateManager.subscribeToTeams((teamsData) => {
       setTeams(teamsData);
     });
-    
+
     const unsubscribeQuestion = gameStateManager.subscribeToCurrentQuestion((question) => {
       setCurrentQuestion(question);
     });
@@ -199,9 +223,9 @@ export default function DisplayPage() {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <img 
-            src="/WhatsApp Image 2025-08-12 at 15.56.07_32a23c23.jpg" 
-            alt="Akal Ke Ghode" 
+          <img
+            src="/WhatsApp Image 2025-08-12 at 15.56.07_32a23c23.jpg"
+            alt="Akal Ke Ghode"
             className="w-96 h-96 mx-auto object-contain"
           />
         </div>
@@ -223,7 +247,7 @@ export default function DisplayPage() {
               const isOut = strikes >= 2;
               return (
                 <div key={team.id} className="text-center">
-                  <div 
+                  <div
                     className="text-lg font-bold"
                     style={{ color: team.color }}
                   >
@@ -231,7 +255,7 @@ export default function DisplayPage() {
                   </div>
                   <div className="text-3xl font-bold">₹{team.score.toLocaleString()}</div>
                   <div className="text-sm text-gray-400">
-                    Dugout: {team.dugoutCount} 
+                    Dugout: {team.dugoutCount}
                     {audienceMembers.length > 0 && (
                       <span className="text-yellow-400"> ({audienceMembers.filter(m => m.team === team.id).length} votes)</span>
                     )}
@@ -251,7 +275,7 @@ export default function DisplayPage() {
             })}
           </div>
         </div>
-        
+
         {/* Round 1 Current Guessing Team */}
         {gameState?.currentRound === 'round1' && gameState?.round1Active && gameState?.round1CurrentGuessingTeam && (
           <div className="mt-4 text-center">
@@ -276,82 +300,137 @@ export default function DisplayPage() {
 
       {/* Main Content */}
       <div className="p-8">
-        {currentQuestion ? (
-          <div className="max-w-6xl mx-auto">
-            {/* Question */}
-            <div className="bg-gray-800 rounded-lg p-6 mb-8">
-              {gameState?.questionRevealed ? (
-                <>
-                  <h2 className="text-3xl font-bold text-center mb-4">{currentQuestion.text}</h2>
-                  
-                  {/* Guess Mode Indicator - Only show when in guess mode */}
-                  {gameState?.revealMode === 'all-at-once' && gameState?.guessMode && (
-                    <div className="text-center">
-                      <div className="inline-flex items-center space-x-4 bg-gray-700 rounded-lg px-4 py-2">
-                        <span className="text-sm text-yellow-400 font-bold">
-                          🎯 GUESS THE QUESTION
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center">
-                  {gameState?.revealMode === 'all-at-once' && gameState?.guessMode ? (
-                    <>
-                      <div className="text-6xl font-bold text-yellow-400 mb-4">🎯</div>
-                      <h2 className="text-2xl text-yellow-300">Guess the Question!</h2>
-                      <p className="text-lg text-gray-400 mt-2">Look at the answers below and try to guess what the question is</p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-6xl font-bold text-gray-400 mb-4">?</div>
-                      <h2 className="text-2xl text-gray-300">Question Hidden</h2>
-                      <p className="text-lg text-gray-400 mt-2">Operator will reveal question or answers</p>
-                    </>
-                  )}
+
+        {/* ROUND 2 SELECTION PHASE */}
+        {gameState?.currentRound === 'round2' && gameState.round2State?.phase === 'selection' && (
+          <div className="max-w-7xl mx-auto">
+            {/* Team Banner */}
+            {gameState.round2CurrentTeam && (
+              <div className="text-center mb-8 p-6 bg-black bg-opacity-40 rounded-xl">
+                <div className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">Playing Now</div>
+                <div
+                  className="text-5xl font-black tracking-wider"
+                  style={{
+                    color: teams.find(t => t.id === gameState.round2CurrentTeam)?.color
+                  }}
+                >
+                  {teams.find(t => t.id === gameState.round2CurrentTeam)?.name}
+                </div>
+              </div>
+            )}
+
+            <h2 className="text-4xl font-bold text-center mb-12 text-indigo-300">Choose Your Question</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {round2Options.map((q) => (
+                <div key={q.id} className="bg-indigo-900/50 border-4 border-indigo-500 rounded-xl p-8 flex items-center justify-center min-h-[300px] transform hover:scale-105 transition-transform duration-300 shadow-2xl">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-white leading-relaxed">{q.text}</div>
+                  </div>
+                </div>
+              ))}
+              {round2Options.length === 0 && (
+                <div className="col-span-3 text-center text-gray-400 animate-pulse">
+                  Waiting for options...
                 </div>
               )}
             </div>
+          </div>
+        )}
 
-            {/* Answers Grid */}
-            {(gameState?.questionRevealed || (gameState?.revealMode === 'all-at-once' && gameState?.guessMode)) && (
-              <div className="grid grid-cols-3 gap-4">
-                {currentQuestion.answers.slice(0, currentQuestion.answerCount).map((answer, index) => (
+        {/* STANDARD QUESTION DISPLAY (Round 1 & Round 2 Question/Reveal Phases) */}
+        {(!gameState?.round2State || gameState.round2State.phase !== 'selection') && (
+          currentQuestion ? (
+            <div className="max-w-6xl mx-auto">
+              {/* Round 2 Team Banner */}
+              {gameState?.currentRound === 'round2' && gameState.round2CurrentTeam && (
+                <div className="text-center mb-6 p-6 bg-black bg-opacity-40 rounded-xl">
+                  <div className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">Playing Now</div>
                   <div
-                    key={answer.id}
-                    className="relative h-32 bg-gray-800 border-4 rounded-lg shadow-xl transition-all duration-500"
+                    className="text-5xl font-black tracking-wider"
                     style={{
-                      borderColor: answer.revealed
-                        ? (gameState?.revealMode === 'all-at-once'
-                            ? '#6b7280' // Neutral gray for all-at-once mode
-                            : (answer.attribution === 'red' ? '#ef4444' :
-                               answer.attribution === 'green' ? '#22c55e' :
-                               answer.attribution === 'blue' ? '#3b82f6' :
-                               answer.attribution === 'host' ? '#6b7280' : '#6b7280'))
-                        : '#4B5563'
+                      color: teams.find(t => t.id === gameState.round2CurrentTeam)?.color
                     }}
                   >
-                    <div className="absolute inset-0 flex items-center justify-center p-4">
-                      {answer.revealed ? (
-                        <div className="text-center">
-                          <div className="text-2xl font-bold text-white">{answer.text}</div>
-                          <div className="text-lg font-semibold text-green-400">₹{answer.value.toLocaleString()}</div>
-                        </div>
-                      ) : (
-                        <div className="text-4xl font-bold text-gray-400">?</div>
-                      )}
-                    </div>
+                    {teams.find(t => t.id === gameState.round2CurrentTeam)?.name}
                   </div>
-                ))}
+                </div>
+              )}
+
+              {/* Question */}
+              <div className="bg-gray-800 rounded-lg p-6 mb-8">
+                {gameState?.questionRevealed ? (
+                  <>
+                    <h2 className="text-3xl font-bold text-center mb-4">{currentQuestion.text}</h2>
+
+                    {/* Guess Mode Indicator - Only show when in guess mode */}
+                    {gameState?.revealMode === 'all-at-once' && gameState?.guessMode && (
+                      <div className="text-center">
+                        <div className="inline-flex items-center space-x-4 bg-gray-700 rounded-lg px-4 py-2">
+                          <span className="text-sm text-yellow-400 font-bold">
+                            🎯 GUESS THE QUESTION
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center">
+                    {gameState?.revealMode === 'all-at-once' && gameState?.guessMode ? (
+                      <>
+                        <div className="text-6xl font-bold text-yellow-400 mb-4">🎯</div>
+                        <h2 className="text-2xl text-yellow-300">Guess the Question!</h2>
+                        <p className="text-lg text-gray-400 mt-2">Look at the answers below and try to guess what the question is</p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-6xl font-bold text-gray-400 mb-4">?</div>
+                        <h2 className="text-2xl text-gray-300">Question Hidden</h2>
+                        <p className="text-lg text-gray-400 mt-2">Operator will reveal question or answers</p>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="text-center">
-            <h2 className="text-4xl font-bold mb-4">No Question Selected</h2>
-            <p className="text-xl text-gray-400">Please select a question from the control panel</p>
-          </div>
+
+              {/* Answers Grid */}
+              {(gameState?.questionRevealed || (gameState?.revealMode === 'all-at-once' && gameState?.guessMode)) && (
+                <div className="grid grid-cols-3 gap-4">
+                  {currentQuestion.answers.slice(0, currentQuestion.answerCount).map((answer, index) => (
+                    <div
+                      key={answer.id}
+                      className="relative h-32 bg-gray-800 border-4 rounded-lg shadow-xl transition-all duration-500"
+                      style={{
+                        borderColor: answer.revealed
+                          ? (gameState?.revealMode === 'all-at-once'
+                            ? '#6b7280' // Neutral gray for all-at-once mode
+                            : (answer.attribution === 'red' ? '#ef4444' :
+                              answer.attribution === 'green' ? '#22c55e' :
+                                answer.attribution === 'blue' ? '#3b82f6' :
+                                  answer.attribution === 'host' ? '#6b7280' : '#6b7280'))
+                          : '#4B5563'
+                      }}
+                    >
+                      <div className="absolute inset-0 flex items-center justify-center p-4">
+                        {answer.revealed ? (
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-white">{answer.text}</div>
+                            {/*<div className="text-lg font-semibold text-green-400">₹{answer.value.toLocaleString()}</div>*/}
+                          </div>
+                        ) : (
+                          <div className="text-4xl font-bold text-gray-400">?</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center">
+              <h2 className="text-4xl font-bold mb-4">No Question Selected</h2>
+              <p className="text-xl text-gray-400">Please select a question from the control panel</p>
+            </div>
+          )
         )}
       </div>
 
@@ -392,7 +471,7 @@ export default function DisplayPage() {
       {scoreAnimation.show && scoreAnimation.amount > 0 && ['red', 'green', 'blue', 'host', 'all'].includes(scoreAnimation.team) && (
         <div className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center">
           <div className="relative">
-            <div 
+            <div
               className="text-6xl md:text-8xl font-black animate-bounce drop-shadow-2xl"
               style={{ color: TEAM_COLORS[scoreAnimation.team] }}
             >

@@ -3,6 +3,23 @@
 import { useEffect, useState, useRef } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
 import Papa from 'papaparse';
+import {
+  collection,
+  query,
+  onSnapshot,
+  orderBy,
+  limit,
+  doc,
+  updateDoc,
+  serverTimestamp,
+  addDoc,
+  getDocs,
+  writeBatch,
+  where,
+  setDoc,
+  deleteDoc
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export default function ControlPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -22,6 +39,8 @@ export default function ControlPage() {
     green: 0,
     blue: 0
   });
+  const [round2Selection, setRound2Selection] = useState<string[]>([]);
+  const [round2ManualScores, setRound2ManualScores] = useState<{ [key: string]: number }>({});
 
   // Audio refs
   const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -129,30 +148,29 @@ export default function ControlPage() {
     // Load initial questions from Firebase
     const loadQuestionsFromFirebase = async () => {
       try {
-        const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('@/lib/firebase');
-
-        const questionsRef = collection(db, 'questions');
-        const querySnapshot = await getDocs(questionsRef);
-        const questions: Question[] = [];
-
-        querySnapshot.forEach((doc) => {
-          questions.push(doc.data() as Question);
+        const q = query(collection(db, 'questions'));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+          const questions: Question[] = [];
+          querySnapshot.forEach((docSnapshot) => {
+            questions.push({ id: docSnapshot.id, ...docSnapshot.data() } as Question);
+          });
+          setLoadedQuestions(questions);
         });
-
-        setLoadedQuestions(questions);
+        // Return unsubscribe function for cleanup
+        return unsubscribe;
       } catch (error) {
         console.error('Error loading questions from Firebase:', error);
       }
     };
 
-    loadQuestionsFromFirebase();
+    const unsubscribeQuestionsPromise = loadQuestionsFromFirebase();
 
     return () => {
       unsubscribeGameState();
       unsubscribeTeams();
       unsubscribeQuestion();
       unsubscribeAudience();
+      unsubscribeQuestionsPromise.then(unsubscribe => unsubscribe && unsubscribe());
     };
   }, []);
 
@@ -228,19 +246,7 @@ export default function ControlPage() {
       // Force clear current question state
       setCurrentQuestion(null);
 
-      // Refresh the loaded questions list after reset
-      const { collection, getDocs } = await import('firebase/firestore');
-      const { db } = await import('@/lib/firebase');
-
-      const questionsRef = collection(db, 'questions');
-      const querySnapshot = await getDocs(questionsRef);
-      const allQuestions: Question[] = [];
-
-      querySnapshot.forEach((doc) => {
-        allQuestions.push(doc.data() as Question);
-      });
-
-      setLoadedQuestions(allQuestions);
+      // The onSnapshot listener in useEffect will automatically refresh questions
       console.log('Control: Game reset completed, questions refreshed');
     } catch (error) {
       console.error('Error resetting game:', error);
@@ -251,15 +257,24 @@ export default function ControlPage() {
 
   const handleSelectQuestion = async (questionId: string) => {
     console.log('Control: Selecting question:', questionId);
+    console.log('Control: Current round is:', gameState?.currentRound);
     setLoading(true);
     try {
       // When selecting a question, reset to initial state
-      await gameStateManager.updateGameState({
+      // In Round 1, questions should be revealed by default
+      const isRound1 = gameState?.currentRound === 'round1';
+      console.log('Control: Is Round 1?', isRound1);
+      console.log('Control: Will set questionRevealed to:', isRound1 ? true : false);
+
+      const updates = {
         currentQuestion: questionId,
-        questionRevealed: false,
-        revealMode: 'one-by-one',
+        questionRevealed: isRound1 ? true : false, // Round 1 shows questions by default
+        revealMode: 'one-by-one' as const,
         guessMode: false
-      });
+      };
+      console.log('Control: Updating game state with:', updates);
+
+      await gameStateManager.updateGameState(updates);
       console.log('Control: Question selected successfully');
     } catch (error) {
       console.error('Error selecting question:', error);
@@ -285,9 +300,10 @@ export default function ControlPage() {
       Papa.parse(csvFile, {
         header: true,
         skipEmptyLines: true,
-        complete: async (results) => {
-          const questions: Question[] = [];
-          for (const row of results.data as any[]) {
+        complete: async (results: Papa.ParseResult<any>) => {
+          const batch = writeBatch(db);
+          let count = 0;
+          for (const row of results.data) {
             const questionId = row.QuestionID;
             const questionText = row.QuestionText;
             const answerCount = parseInt(row.AnswerCount) || 10;
@@ -313,31 +329,22 @@ export default function ControlPage() {
               }
             }
 
-            questions.push({
+            const question: Question = {
               id: questionId.trim(),
               text: questionText.trim(),
               answers,
               answerCount: answers.length // Use the actual number of parsed answers
-            });
+            };
+
+            // Use the question ID as the document ID (not auto-generated)
+            const questionDocRef = doc(db, 'questions', questionId.trim());
+            batch.set(questionDocRef, question);
+            count++;
           }
 
-          // Load questions to Firebase
-          for (const question of questions) {
-            await gameStateManager.addQuestion(question);
-          }
+          await batch.commit();
 
-          // Refresh the loaded questions list
-          const { collection, getDocs } = await import('firebase/firestore');
-          const { db } = await import('@/lib/firebase');
-          const questionsRef = collection(db, 'questions');
-          const querySnapshot = await getDocs(questionsRef);
-          const allQuestions: Question[] = [];
-          querySnapshot.forEach((doc) => {
-            allQuestions.push(doc.data() as Question);
-          });
-          setLoadedQuestions(allQuestions);
-
-          alert(`Successfully loaded ${questions.length} questions!`);
+          alert(`Successfully loaded ${count} questions!`);
           setCsvFile(null);
           setLoading(false);
         },
@@ -373,28 +380,16 @@ export default function ControlPage() {
           attribution: null
         }));
 
-      const question: Question = {
+      const newQuestion: Question = {
         id: questionId,
         text: manualQuestion.text,
         answers,
         answerCount: answers.length
       };
 
-      await gameStateManager.addQuestion(question);
-
-      // Refresh the loaded questions list
-      const { collection, getDocs } = await import('firebase/firestore');
-      const { db } = await import('@/lib/firebase');
-
-      const questionsRef = collection(db, 'questions');
-      const querySnapshot = await getDocs(questionsRef);
-      const allQuestions: Question[] = [];
-
-      querySnapshot.forEach((doc) => {
-        allQuestions.push(doc.data() as Question);
-      });
-
-      setLoadedQuestions(allQuestions);
+      // Use the generated questionId as the document ID
+      const questionDocRef = doc(db, 'questions', questionId);
+      await setDoc(questionDocRef, newQuestion);
       alert('Question added successfully!');
 
       // Reset form
@@ -402,9 +397,9 @@ export default function ControlPage() {
         text: '',
         answers: [{ text: '', value: 0 }]
       });
-    } catch (error) {
-      console.error('Error adding manual question:', error);
-      alert('Error adding question. Please try again.');
+    } catch (error: unknown) {
+      console.error("Error adding question:", error);
+      alert(`Error: ${(error as Error).message}`);
     } finally {
       setLoading(false);
     }
@@ -589,96 +584,204 @@ export default function ControlPage() {
     }
   };
 
+  // ========== ROUND 2 HANDLERS ==========
+  const handleRound2SelectOptions = async () => {
+    if (round2Selection.length !== 3) {
+      alert('Please select exactly 3 questions.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await gameStateManager.setRound2AvailableQuestions(round2Selection);
+      console.log('Control: Round 2 options set:', round2Selection);
+    } catch (error) {
+      console.error('Error setting Round 2 options:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRound2SelectQuestion = async (questionId: string) => {
+    setLoading(true);
+    try {
+      await gameStateManager.selectRound2Question(questionId);
+      console.log('Control: Round 2 question selected:', questionId);
+    } catch (error) {
+      console.error('Error selecting Round 2 question:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRound2StartTimer = async () => {
+    setLoading(true);
+    try {
+      await gameStateManager.startRound2Timer(); // 90 seconds for Round 2
+      console.log('Control: Round 2 timer started');
+    } catch (error) {
+      console.error('Error starting Round 2 timer:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRound2StopTimer = async () => {
+    setLoading(true);
+    try {
+      await gameStateManager.endRound2Timer();
+      console.log('Control: Round 2 timer stopped');
+    } catch (error) {
+      console.error('Error stopping Round 2 timer:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRound2RevealAnswer = async (answerId: string, attribution: 'red' | 'green' | 'blue' | 'host' | 'neutral') => {
+    if (!currentQuestion) return;
+
+    setLoading(true);
+    try {
+      const manualScore = round2ManualScores[answerId];
+      await gameStateManager.revealAnswer(
+        currentQuestion.id,
+        answerId,
+        attribution,
+        manualScore > 0 ? manualScore : undefined
+      );
+      await playHostAnswerSound();
+      // Clear manual score for this answer after revealing
+      setRound2ManualScores(prev => {
+        const newScores = { ...prev };
+        delete newScores[answerId];
+        return newScores;
+      });
+      console.log('Control: Round 2 answer revealed:', answerId);
+    } catch (error) {
+      console.error('Error revealing Round 2 answer:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectRound2Team = async (team: 'red' | 'green' | 'blue') => {
+    setLoading(true);
+    try {
+      await gameStateManager.selectRound2Team(team);
+      setRound2Selection([]); // Clear previous selections for new team
+      console.log('Control: Selected Round 2 team:', team);
+    } catch (error) {
+      console.error('Error selecting Round 2 team:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-7xl mx-auto">
-      <div className="flex justify-between">
-        {/* CSV Upload */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-bold mb-4">Upload CSV Questions</h2>
-          <div className="space-y-3">
-            <input
-              type="file"
-              accept=".csv"
-              onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-              className="w-full p-2 border rounded"
-            />
-            <button
-              onClick={handleCsvUpload}
-              className="w-full p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
-              disabled={loading || !csvFile}
-            >
-              UPLOAD CSV
-            </button>
-            <div className="flex space-x-2">
+        <div className="flex justify-between">
+          {/* CSV Upload */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 className="text-xl font-bold mb-4">Upload CSV Questions</h2>
+            <div className="space-y-3">
+              <input
+                type="file"
+                accept=".csv"
+                onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                className="w-full p-2 border rounded"
+              />
               <button
-                onClick={() => window.open('/sample-questions.csv', '_blank')}
-                className="flex-1 p-2 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                onClick={handleCsvUpload}
+                className="w-full p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
+                disabled={loading || !csvFile}
               >
-                📥 Download Sample CSV
+                UPLOAD CSV
               </button>
-            </div>
-          </div>
-        </div>
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Game Show Control Panel</h1>
-
-          {/* Game State Overview */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="text-center">
-              <div className="text-sm text-gray-600 mb-2">Current Round</div>
-              <div className="text-xl font-bold mb-2">{gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}</div>
-              <select
-                value={gameState?.currentRound || 'pre-show'}
-                onChange={(e) => handleUpdateGameState({ currentRound: e.target.value as GameState['currentRound'] })}
-                className="text-xs p-1 border rounded"
-                disabled={loading}
-              >
-                <option value="pre-show">Pre-Show</option>
-                <option value="round1">Round 1</option>
-                <option value="round2">Round 2</option>
-                <option value="round3">Round 3</option>
-                <option value="final">Final</option>
-              </select>
-            </div>
-
-            {/* Team Scores and Audience Voting */}
-
-            {teams.map((team) => (
-              <div key={team.id} className="bg-gray-50 rounded-lg p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="font-bold" style={{ color: team.color }}>{team.name}</h3>
-                  <span className="text-sm text-gray-600">
-                    Dugout: {team.dugoutCount + (audienceMembers.filter(m => m.team === team.id).length)}
-                  </span>
-                </div>
-                <div className="text-xl font-bold mb-2">₹{team.score.toLocaleString()}</div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleScoreChange(team.id, 100)}
-                    className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
-                    disabled={loading}
-                  >
-                    +100
-                  </button>
-                  <button
-                    onClick={() => handleScoreChange(team.id, -100)}
-                    className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
-                    disabled={loading}
-                  >
-                    -100
-                  </button>
-                </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => window.open('/sample-questions.csv', '_blank')}
+                  className="flex-1 p-2 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                >
+                  📥 Download Sample CSV
+                </button>
               </div>
-            ))}
+            </div>
+          </div>
+          {/* Header */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">Game Show Control Panel</h1>
 
+            {/* Game State Overview */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="text-center">
+                <div className="text-sm text-gray-600 mb-2">Current Round</div>
+                <div className="text-xl font-bold mb-2">{gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}</div>
+                <select
+                  value={gameState?.currentRound || 'pre-show'}
+                  onChange={(e) => {
+                    const newRound = e.target.value;
+                    if (newRound === 'round1') {
+                      handleStartRound1();
+                    } else if (newRound === 'round2') {
+                      gameStateManager.startRound2();
+                    } else {
+                      handleUpdateGameState({ currentRound: newRound as GameState['currentRound'] });
+                    }
+                  }}
+                  className="text-xs p-1 border rounded"
+                  disabled={loading}
+                >
+                  <option value="pre-show">Pre-Show</option>
+                  <option value="round1">Round 1</option>
+                  <option value="round2">Round 2</option>
+                  <option value="round3">Round 3</option>
+                  <option value="final">Final</option>
+                </select>
+              </div>
+
+              {/* Team Scores and Audience Voting */}
+
+              {teams.map((team) => (
+                <div key={team.id} className="bg-gray-50 rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold" style={{ color: team.color }}>{team.name}</h3>
+                    <span className="text-sm text-gray-600">
+                      Dugout: {team.dugoutCount + (audienceMembers.filter(m => m.team === team.id).length)}
+                    </span>
+                  </div>
+                  <div className="text-xl font-bold mb-2">₹{team.score.toLocaleString()}</div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleScoreChange(team.id, 100)}
+                      className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
+                      disabled={loading}
+                    >
+                      +100
+                    </button>
+                    <button
+                      onClick={() => handleScoreChange(team.id, -100)}
+                      className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
+                      disabled={loading}
+                    >
+                      -100
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+            </div>
           </div>
         </div>
-      </div>
 
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+
+
           {/* Left Column - Question Management */}
           <div className="space-y-6">
 
@@ -721,7 +824,7 @@ export default function ControlPage() {
                   className="w-full p-2 border rounded"
                 />
                 {manualQuestion.answers.map((answer, index) => (
-                  <div key={index} className="flex space-x-2">
+                  <div key={index} className="flex space-x-2 mb-2">
                     <input
                       type="text"
                       placeholder={`Answer ${index + 1}`}
@@ -770,131 +873,131 @@ export default function ControlPage() {
 
               {currentQuestion ? (
                 <div>
-                    <h3 className="font-bold text-lg mb-2">{currentQuestion.text}</h3>
+                  <h3 className="font-bold text-lg mb-2">{currentQuestion.text}</h3>
 
-                    {!gameState?.questionRevealed ? (
-                      <div className="space-y-3">
-                        <div className="flex flex-col md:flex-row md:space-x-2 space-y-2 md:space-y-0">
-                          <button
-                            onClick={() => handleUpdateGameState({
-                              questionRevealed: true,
-                              revealMode: 'one-by-one'
-                            })}
-                            className="flex-1 bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-medium"
-                            disabled={loading}
-                          >
-                            Reveal Question
-                          </button>
-                          <button
-                            onClick={async () => {
-                              await handleUpdateGameState({
-                                questionRevealed: false,
-                                revealMode: 'all-at-once',
-                                guessMode: true
-                              });
-                              if (currentQuestion) {
-                                await handleRevealAllAnswers();
-                              }
-                            }}
-                            className="flex-1 bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 font-medium"
-                            disabled={loading}
-                          >
-                            Reveal All Answers
-                          </button>
-                        </div>
-
-                        {gameState?.revealMode === 'all-at-once' && gameState?.guessMode && (
-                          <div className="mt-3 pt-3 border-t border-gray-300">
-                            <button
-                              onClick={() => handleUpdateGameState({ questionRevealed: true })}
-                              className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 w-full font-medium"
-                              disabled={loading}
-                            >
-                              Reveal Question (After Guessing)
-                            </button>
-                          </div>
-                        )}
+                  {!gameState?.questionRevealed ? (
+                    <div className="space-y-3">
+                      <div className="flex flex-col md:flex-row md:space-x-2 space-y-2 md:space-y-0">
+                        <button
+                          onClick={() => handleUpdateGameState({
+                            questionRevealed: true,
+                            revealMode: 'one-by-one'
+                          })}
+                          className="flex-1 bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-medium"
+                          disabled={loading}
+                        >
+                          Reveal Question
+                        </button>
+                        <button
+                          onClick={async () => {
+                            await handleUpdateGameState({
+                              questionRevealed: false,
+                              revealMode: 'all-at-once',
+                              guessMode: true
+                            });
+                            if (currentQuestion) {
+                              await handleRevealAllAnswers();
+                            }
+                          }}
+                          className="flex-1 bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 font-medium"
+                          disabled={loading}
+                        >
+                          Reveal All Answers
+                        </button>
                       </div>
-                    ) : (
-                      <div className="mt-4 space-y-3">
-                        <div className="text-sm text-green-600 font-semibold mb-3">
-                          ✓ Question is visible on display
-                        </div>
 
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                          <span className="font-medium text-sm">Reveal Mode:</span>
+                      {gameState?.revealMode === 'all-at-once' && gameState?.guessMode && (
+                        <div className="mt-3 pt-3 border-t border-gray-300">
+                          <button
+                            onClick={() => handleUpdateGameState({ questionRevealed: true })}
+                            className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 w-full font-medium"
+                            disabled={loading}
+                          >
+                            Reveal Question (After Guessing)
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      <div className="text-sm text-green-600 font-semibold mb-3">
+                        ✓ Question is visible on display
+                      </div>
+
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <span className="font-medium text-sm">Reveal Mode:</span>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handleUpdateGameState({ revealMode: 'one-by-one' })}
+                            className={`px-3 py-1 rounded text-xs font-medium ${gameState?.revealMode === 'one-by-one'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                              }`}
+                            disabled={loading}
+                          >
+                            One by One
+                          </button>
+                          <button
+                            onClick={() => handleUpdateGameState({ revealMode: 'all-at-once' })}
+                            className={`px-3 py-1 rounded text-xs font-medium ${gameState?.revealMode === 'all-at-once'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                              }`}
+                            disabled={loading}
+                          >
+                            All at Once
+                          </button>
+                        </div>
+                      </div>
+
+                      {gameState?.revealMode === 'all-at-once' && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-sm">Guess Mode:</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={gameState?.guessMode || false}
+                                onChange={() => handleUpdateGameState({ guessMode: !gameState?.guessMode })}
+                                className="sr-only peer"
+                                disabled={loading}
+                              />
+                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                            </label>
+                          </div>
+
                           <div className="flex space-x-2">
                             <button
-                              onClick={() => handleUpdateGameState({ revealMode: 'one-by-one' })}
-                              className={`px-3 py-1 rounded text-xs font-medium ${gameState?.revealMode === 'one-by-one'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                }`}
+                              onClick={() => handleRevealAllAnswers()}
+                              className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
                               disabled={loading}
                             >
-                              One by One
+                              Reveal All Answers
                             </button>
                             <button
-                              onClick={() => handleUpdateGameState({ revealMode: 'all-at-once' })}
-                              className={`px-3 py-1 rounded text-xs font-medium ${gameState?.revealMode === 'all-at-once'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                }`}
+                              onClick={() => handleHideAllAnswers()}
+                              className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
                               disabled={loading}
                             >
-                              All at Once
+                              Hide All Answers
                             </button>
                           </div>
+
+                          {gameState?.guessMode && (
+                            <div className="mt-3 pt-3 border-t border-gray-300">
+                              <button
+                                onClick={() => handleUpdateGameState({ questionRevealed: true })}
+                                className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 w-full"
+                                disabled={loading}
+                              >
+                                Reveal Question
+                              </button>
+                            </div>
+                          )}
                         </div>
-
-                        {gameState?.revealMode === 'all-at-once' && (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium text-sm">Guess Mode:</span>
-                              <label className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={gameState?.guessMode || false}
-                                  onChange={() => handleUpdateGameState({ guessMode: !gameState?.guessMode })}
-                                  className="sr-only peer"
-                                  disabled={loading}
-                                />
-                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                              </label>
-                            </div>
-
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleRevealAllAnswers()}
-                                className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
-                                disabled={loading}
-                              >
-                                Reveal All Answers
-                              </button>
-                              <button
-                                onClick={() => handleHideAllAnswers()}
-                                className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
-                                disabled={loading}
-                              >
-                                Hide All Answers
-                              </button>
-                            </div>
-
-                            {gameState?.guessMode && (
-                              <div className="mt-3 pt-3 border-t border-gray-300">
-                                <button
-                                  onClick={() => handleUpdateGameState({ questionRevealed: true })}
-                                  className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 w-full"
-                                  disabled={loading}
-                                >
-                                  Reveal Question
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-gray-500">
@@ -1046,6 +1149,216 @@ export default function ControlPage() {
                     </>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ROUND 2 GAMEPLAY */}
+            {gameState?.currentRound === 'round2' && (
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-bold mb-4">Round 2 Gameplay</h2>
+
+                {/* Team Selection - Always visible */}
+                <div className="mb-4 pb-4 border-b border-gray-200">
+                  <div className="text-sm font-semibold text-gray-700 mb-2">
+                    Select Team Playing Round 2
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {teams.map((team) => {
+                      const isCurrentTeam = gameState?.round2CurrentTeam === team.id;
+                      return (
+                        <button
+                          key={team.id}
+                          onClick={() => handleSelectRound2Team(team.id as 'red' | 'green' | 'blue')}
+                          disabled={loading}
+                          className={`p-3 rounded-lg border-2 font-medium text-center transition-all ${isCurrentTeam
+                            ? 'bg-blue-50 shadow-md'
+                            : 'bg-white hover:bg-gray-50'
+                            }`}
+                          style={{
+                            borderColor: isCurrentTeam ? team.color : '#e5e7eb',
+                            backgroundColor: isCurrentTeam ? `${team.color}15` : 'white'
+                          }}
+                        >
+                          <div className="font-bold" style={{ color: team.color }}>
+                            {team.name}
+                          </div>
+                          {isCurrentTeam && (
+                            <div className="text-xs font-bold uppercase mt-1" style={{ color: team.color }}>
+                              ● Playing
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {gameState.round2UsedQuestionIds && gameState.round2UsedQuestionIds.length > 0 && (
+                    <div className="text-xs text-gray-500 mt-2">
+                      Questions used: {gameState.round2UsedQuestionIds.length} |
+                      Available: {loadedQuestions.length - gameState.round2UsedQuestionIds.length}
+                    </div>
+                  )}
+                </div>
+
+                {/* Phase 1: Selection */}
+                {gameState.round2State?.phase === 'selection' && (
+                  <div className="space-y-3">
+                    {/* Step 1: Select Questions */}
+                    <div>
+                      <div className="flex justify-between items-end mb-2">
+                        <div className="text-sm font-semibold text-gray-700">
+                          Select 3 Questions to Offer
+                        </div>
+                        <div className={`text-xs font-bold ${round2Selection.length === 3 ? 'text-green-600' : 'text-gray-500'}`}>
+                          {round2Selection.length}/3 Selected
+                        </div>
+                      </div>
+
+                      <div className="border rounded-lg overflow-hidden">
+                        <div className="overflow-y-auto bg-gray-50 divide-y divide-gray-200">
+                          {loadedQuestions
+                            .filter(q => !(gameState.round2UsedQuestionIds || []).includes(q.id))
+                            .map((q, i) => (
+                              <label key={q.id || i} className="flex items-center p-3 hover:bg-gray-100 cursor-pointer transition-colors">
+                                <input
+                                  type="checkbox"
+                                  checked={round2Selection.includes(q.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      if (round2Selection.length < 3) {
+                                        setRound2Selection([...round2Selection, q.id]);
+                                      }
+                                    } else {
+                                      setRound2Selection(round2Selection.filter(id => id !== q.id));
+                                    }
+                                  }}
+                                  className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                />
+                                <div className="ml-3 flex-1">
+                                  <div className="text-xs font-mono text-gray-500">{q.id}</div>
+                                  <div className="text-sm text-gray-900">{q.text}</div>
+                                </div>
+                              </label>
+                            ))}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleRound2SelectOptions}
+                        disabled={round2Selection.length !== 3 || loading}
+                        className="w-full mt-3 p-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        SHOW OPTIONS ON SCREEN
+                      </button>
+                    </div>
+
+                    {/* Step 2: Select Active Question */}
+                    {gameState.round2State?.availableQuestionIds && gameState.round2State.availableQuestionIds.length === 3 && (
+                      <div className="pt-6 border-t border-gray-200">
+                        <div className="text-sm font-semibold text-gray-700 mb-3">
+                          Select the Chosen Question
+                        </div>
+                        <div className="space-y-1">
+                          {gameState.round2State.availableQuestionIds.map((id) => {
+                            const q = loadedQuestions.find(q => q.id === id);
+                            const isSelected = gameState.round2State?.activeQuestionId === id;
+                            return (
+                              <button
+                                key={id}
+                                onClick={() => handleRound2SelectQuestion(id)}
+                                className={`p-4 rounded-lg border-2 text-left transition-all ${isSelected
+                                  ? 'bg-blue-50 border-blue-500 shadow-md'
+                                  : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                                  }`}
+                              >
+                                <div className={`text-sm font-bold mb-1 ${isSelected ? 'text-blue-800' : 'text-gray-800'}`}>
+                                  {q?.text || 'Unknown Question'}
+                                </div>
+                                {isSelected && (
+                                  <div className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                                    ✓ Active
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Phase 2 & 3: Question & Reveal */}
+                {(gameState.round2State?.phase === 'question' || gameState.round2State?.phase === 'reveal') && currentQuestion && (
+                  <div className="space-y-3">
+                    {/* Timer Control */}
+                    <div>
+                      <button
+                        onClick={gameState.timerActive ? handleRound2StopTimer : handleRound2StartTimer}
+                        className={`w-full p-2 rounded-lg font-bold text-xl shadow-sm transition-all flex items-center justify-center space-x-2 ${gameState.timerActive
+                          ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse'
+                          : 'bg-green-600 text-white hover:bg-green-700'
+                          }`}
+                      >
+                        <span>{gameState.timerActive ? 'STOP TIMER' : 'START 90s TIMER'}</span>
+                      </button>
+                    </div>
+
+                    {/* Answers & Scoring */}
+                    <div>
+                      <div className="text-sm font-semibold text-gray-700 mb-3">Answers & Scoring</div>
+                      <div className="space-y-3 overflow-hidden">
+                        {currentQuestion.answers.map((answer, index) => (
+                          <div key={index} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="font-medium text-gray-900">{answer.text}</div>
+                              <div className="text-sm font-bold text-gray-500">Value: {answer.value}</div>
+                            </div>
+
+                            {!answer.revealed ? (
+                              <div className="flex items-center space-x-2 mt-2">
+                                <input
+                                  type="number"
+                                  placeholder="Score"
+                                  className="w-24 p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                  value={round2ManualScores[answer.id] || ''}
+                                  onChange={(e) => setRound2ManualScores({
+                                    ...round2ManualScores,
+                                    [answer.id]: parseInt(e.target.value) || 0
+                                  })}
+                                />
+                                <div className="flex-1 flex space-x-2">
+                                  {gameState.activeTeam && (
+                                    <button
+                                      onClick={() => handleRound2RevealAnswer(answer.id, gameState.activeTeam!)}
+                                      className="flex-1 px-3 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 transition-colors"
+                                    >
+                                      Reveal ({gameState.activeTeam.toUpperCase()})
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleRound2RevealAnswer(answer.id, 'neutral')}
+                                    className="px-3 py-2 bg-gray-600 text-white rounded text-sm font-medium hover:bg-gray-700 transition-colors"
+                                  >
+                                    Reveal (No Score)
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mt-2 flex items-center text-green-600 bg-green-50 p-2 rounded border border-green-100">
+                                <span className="font-bold mr-2">✓ REVEALED</span>
+                                {answer.attribution && (
+                                  <span className="text-xs bg-white border border-green-200 px-2 py-0.5 rounded text-green-700 font-medium uppercase">
+                                    {answer.attribution}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

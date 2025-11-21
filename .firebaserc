@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "bachelore-gameshow"
+    "default": "akal-ke-ghode-test",
+    "production": "bachelore-gameshow",
+    "testing": "akal-ke-ghode-test"
   }
 }
