@@ -820,6 +820,9 @@ export class GameStateManager {
   async selectRound2Question(questionId: string): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
 
+    // Reset the question's answers to original hidden state before using it in Round 2
+    await this.hideAllAnswers(questionId);
+
     // Also set this as the main currentQuestion so other components can use it
     await updateDoc(gameStateRef, {
       'round2State.activeQuestionId': questionId,
