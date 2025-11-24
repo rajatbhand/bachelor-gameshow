@@ -10,6 +10,7 @@ import {
   orderBy,
   limit,
   doc,
+  getDoc,
   updateDoc,
   serverTimestamp,
   addDoc,
@@ -151,8 +152,14 @@ export default function ControlPage() {
         const q = query(collection(db, 'questions'));
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
           const questions: Question[] = [];
+          const seenIds = new Set<string>();
           querySnapshot.forEach((docSnapshot) => {
-            questions.push({ id: docSnapshot.id, ...docSnapshot.data() } as Question);
+            const questionData = { id: docSnapshot.id, ...docSnapshot.data() } as Question;
+            // Only add if we haven't seen this ID yet (deduplicate)
+            if (!seenIds.has(questionData.id)) {
+              questions.push(questionData);
+              seenIds.add(questionData.id);
+            }
           });
           setLoadedQuestions(questions);
         });
@@ -256,33 +263,26 @@ export default function ControlPage() {
   };
 
   const handleSelectQuestion = async (questionId: string) => {
-    console.log('Control: Selecting question:', questionId);
-    console.log('Control: Current round is:', gameState?.currentRound);
-    setLoading(true);
-    try {
-      // Hide all answers first to reset state
-      await gameStateManager.hideAllAnswers(questionId);
+    // When selecting a question, reset to initial state
+    // In Round 1, Round 3, and Pre-Show, questions should be revealed by default
+    const shouldRevealQuestion = ['round1', 'round3', 'pre-show'].includes(gameState?.currentRound || '');
 
-      // When selecting a question, reset to initial state
-      // In Round 1, Round 3, and Pre-Show, questions should be revealed by default
-      const shouldRevealQuestion = ['round1', 'round3', 'pre-show'].includes(gameState?.currentRound || '');
-      console.log('Control: Should reveal question?', shouldRevealQuestion);
+    // Hide all answers first (fire and forget - don't block UI)
+    gameStateManager.hideAllAnswers(questionId).catch((error) => {
+      console.error('Error hiding answers:', error);
+    });
 
-      const updates = {
-        currentQuestion: questionId,
-        questionRevealed: shouldRevealQuestion, // Reveal for round1, round3, pre-show
-        revealMode: 'one-by-one' as const,
-        guessMode: false
-      };
-      console.log('Control: Updating game state with:', updates);
+    const updates = {
+      currentQuestion: questionId,
+      questionRevealed: shouldRevealQuestion, // Reveal for round1, round3, pre-show
+      revealMode: 'one-by-one' as const,
+      guessMode: false
+    };
 
-      await gameStateManager.updateGameState(updates);
-      console.log('Control: Question selected successfully');
-    } catch (error) {
+    // Fire and forget - don't wait for Firestore, let real-time listeners handle it
+    gameStateManager.updateGameState(updates).catch((error) => {
       console.error('Error selecting question:', error);
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   const handleCsvUpload = async () => {
@@ -516,7 +516,24 @@ export default function ControlPage() {
         await playTeamAnswerSound();
         setRound1SelectedAnswer(''); // Reset selection
       } else {
+        // Wrong answer - evaluate and show X
         await gameStateManager.evaluateRound1Guess(false);
+
+        // Show the big X overlay
+        await gameStateManager.updateGameState({
+          bigX: true
+        });
+
+        // Auto-clear the big X after 5 seconds
+        setTimeout(async () => {
+          try {
+            await gameStateManager.updateGameState({
+              bigX: false
+            });
+          } catch (error) {
+            console.error('Error clearing big X:', error);
+          }
+        }, 1000);
       }
       console.log('Control: Guess evaluated');
     } catch (error) {
@@ -1082,84 +1099,83 @@ export default function ControlPage() {
                     </div>
                   </div>
 
-                  {gameState?.round1Active && (
-                    <>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="text-xs text-gray-600 mb-1 block">
-                            Select the answer block for reveals:
-                          </label>
-                          <select
-                            value={round1SelectedAnswer}
-                            onChange={(e) => setRound1SelectedAnswer(e.target.value)}
-                            className="w-full p-2 border rounded text-sm"
-                            disabled={loading}
-                          >
-                            <option value="">Select answer...</option>
-                            {(() => {
-                              const question = loadedQuestions.find(q => q.id === gameState?.currentQuestion);
-                              return question?.answers
-                                ?.slice(0, question.answerCount)
-                                .filter((a) => !a.revealed)
-                                .map((answer, index) => (
-                                  <option key={answer.id} value={answer.id}>
-                                    #{index + 1}: {answer.text} (₹{answer.value})
-                                  </option>
-                                ));
-                            })()}
-                          </select>
-                        </div>
-
-                        {gameState?.round1CurrentGuessingTeam && (
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              onClick={() => handleEvaluateRound1Guess(true)}
-                              className="p-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700"
-                              disabled={loading || !round1SelectedAnswer}
-                            >
-                              ✓ CORRECT
-                            </button>
-                            <button
-                              onClick={() => handleEvaluateRound1Guess(false)}
-                              className="p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
-                              disabled={loading}
-                            >
-                              ✗ WRONG
-                            </button>
-                          </div>
-                        )}
-
-                        <div className="pt-3 border-t border-gray-200">
-                          <button
-                            onClick={handleRound1OpenReveal}
-                            className="w-full p-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 text-sm"
-                            disabled={loading || !round1SelectedAnswer}
-                          >
-                            OPEN REVEAL
-                          </button>
-                        </div>
+                  {/* Gameplay controls for pre-show, round1, and round3 */}
+                  <>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs text-gray-600 mb-1 block">
+                          Select the answer block for reveals:
+                        </label>
+                        <select
+                          value={round1SelectedAnswer}
+                          onChange={(e) => setRound1SelectedAnswer(e.target.value)}
+                          className="w-full p-2 border rounded text-sm"
+                          disabled={loading}
+                        >
+                          <option value="">Select answer...</option>
+                          {(() => {
+                            const question = loadedQuestions.find(q => q.id === gameState?.currentQuestion);
+                            return question?.answers
+                              ?.slice(0, question.answerCount)
+                              .filter((a) => !a.revealed)
+                              .map((answer, index) => (
+                                <option key={answer.id} value={answer.id}>
+                                  #{index + 1}: {answer.text} (₹{answer.value})
+                                </option>
+                              ));
+                          })()}
+                        </select>
                       </div>
 
-                      {gameState?.currentRound === 'round1' && (
-                        <div className="flex flex-col md:flex-row md:space-x-3 space-y-2 md:space-y-0 pt-2">
+                      {gameState?.round1CurrentGuessingTeam && (
+                        <div className="grid grid-cols-2 gap-2">
                           <button
-                            onClick={handleEndRound1}
-                            className="flex-1 p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
-                            disabled={loading}
+                            onClick={() => handleEvaluateRound1Guess(true)}
+                            className="p-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700"
+                            disabled={loading || !round1SelectedAnswer}
                           >
-                            END ROUND 1
+                            ✓ CORRECT
                           </button>
                           <button
-                            onClick={handleResetRound1Strikes}
-                            className="p-3 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600"
+                            onClick={() => handleEvaluateRound1Guess(false)}
+                            className="p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
                             disabled={loading}
                           >
-                            Reset Strikes
+                            ✗ WRONG
                           </button>
                         </div>
                       )}
-                    </>
-                  )}
+
+                      <div className="pt-3 border-t border-gray-200">
+                        <button
+                          onClick={handleRound1OpenReveal}
+                          className="w-full p-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 text-sm"
+                          disabled={loading || !round1SelectedAnswer}
+                        >
+                          OPEN REVEAL
+                        </button>
+                      </div>
+                    </div>
+
+                    {gameState?.currentRound === 'round1' && (
+                      <div className="flex flex-col md:flex-row md:space-x-3 space-y-2 md:space-y-0 pt-2">
+                        <button
+                          onClick={handleEndRound1}
+                          className="flex-1 p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
+                          disabled={loading}
+                        >
+                          END ROUND 1
+                        </button>
+                        <button
+                          onClick={handleResetRound1Strikes}
+                          className="p-3 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600"
+                          disabled={loading}
+                        >
+                          Reset Strikes
+                        </button>
+                      </div>
+                    )}
+                  </>
                 </div>
               </div>
             )}

@@ -622,9 +622,20 @@ export class GameStateManager {
     if (gameStateDoc.exists()) {
       const state = gameStateDoc.data() as GameState;
 
-      // Only allow if Round 1 is active and team doesn't have 2 strikes yet
-      if (state.currentRound === 'round1' && state.round1Active) {
-        if (state.round1Strikes[team] < 2) {
+      // Allow for pre-show, round1, and round3
+      const validRounds = ['pre-show', 'round1', 'round3'];
+      if (validRounds.includes(state.currentRound || '')) {
+        // For round1, check if team has less than 2 strikes
+        if (state.currentRound === 'round1' && state.round1Active) {
+          if (state.round1Strikes[team] < 2) {
+            await updateDoc(gameStateRef, {
+              round1CurrentGuessingTeam: team,
+              activeTeam: team,
+              lastUpdated: serverTimestamp()
+            });
+          }
+        } else {
+          // For pre-show and round3, just set the team (no strike checking)
           await updateDoc(gameStateRef, {
             round1CurrentGuessingTeam: team,
             activeTeam: team,
@@ -652,17 +663,17 @@ export class GameStateManager {
 
     const state = gameStateDoc.data() as GameState;
 
-    // Only process if Round 1 is active and there's a current guessing team
-    if (state.currentRound !== 'round1' || !state.round1Active || !state.round1CurrentGuessingTeam) {
+    // Ensure a guessing team is selected and we are in a relevant round
+    const validRounds = ['pre-show', 'round1', 'round3'];
+    if (!validRounds.includes(state.currentRound || '') || !state.round1CurrentGuessingTeam) {
       return;
     }
 
     const guessingTeam = state.round1CurrentGuessingTeam;
-    const currentStrikes = state.round1Strikes[guessingTeam];
+    const currentStrikes = state.round1Strikes?.[guessingTeam] || 0;
 
     if (isCorrect && matchingAnswerId && state.currentQuestion) {
-      // Correct guess - reveal the matching answer
-      // Find the answer in the question
+      // Correct guess - reveal the matching answer (same as before)
       const questionRef = doc(db, 'questions', state.currentQuestion);
       const questionDoc = await getDoc(questionRef);
 
@@ -671,7 +682,6 @@ export class GameStateManager {
         const answerToReveal = question.answers.find(a => a.id === matchingAnswerId);
 
         if (answerToReveal && !answerToReveal.revealed) {
-          // Reveal the answer and award points to the team
           await this.revealAnswer(
             state.currentQuestion,
             matchingAnswerId,
@@ -680,39 +690,52 @@ export class GameStateManager {
           );
         }
       }
-    } else if (!isCorrect) {
-      // Wrong guess - add a strike
-      const newStrikes = currentStrikes + 1;
-      const updatedStrikes = {
-        ...state.round1Strikes,
-        [guessingTeam]: newStrikes
-      };
-
-      // Check if all teams are out (all have 2 strikes)
-      const allTeamsOut = updatedStrikes.red >= 2 &&
-        updatedStrikes.green >= 2 &&
-        updatedStrikes.blue >= 2;
-
-      await updateDoc(gameStateRef, {
-        round1Strikes: updatedStrikes,
-        round1CurrentGuessingTeam: null, // Clear current guessing team after evaluation
-        activeTeam: null,
-        round1Active: !allTeamsOut, // End Round 1 if all teams are out
-        lastUpdated: serverTimestamp()
-      });
-
-      // If all teams are out, Round 1 ends
-      if (allTeamsOut) {
-        console.log('Round 1 ended: All teams have 2 strikes');
-      }
     } else {
-      // Correct guess but no matching answer ID provided - just clear the guessing team
-      await updateDoc(gameStateRef, {
-        round1CurrentGuessingTeam: null,
-        activeTeam: null,
-        lastUpdated: serverTimestamp()
-      });
+      // Wrong guess handling differs by round
+      if (state.currentRound === 'round1') {
+        // Round 1: add a strike (existing logic)
+        const newStrikes = currentStrikes + 1;
+        const updatedStrikes = {
+          ...state.round1Strikes,
+          [guessingTeam]: newStrikes,
+        };
+        const allTeamsOut =
+          updatedStrikes.red >= 2 &&
+          updatedStrikes.green >= 2 &&
+          updatedStrikes.blue >= 2;
+
+        await updateDoc(gameStateRef, {
+          round1Strikes: updatedStrikes,
+          round1CurrentGuessingTeam: null,
+          activeTeam: null,
+          round1Active: !allTeamsOut,
+          lastUpdated: serverTimestamp(),
+        });
+
+        if (allTeamsOut) {
+          console.log('Round 1 ended: All teams have 2 strikes');
+        }
+      } else {
+        // Pre-show or Round 3: just show big X and clear guessing team
+        await updateDoc(gameStateRef, {
+          bigX: true,
+          round1CurrentGuessingTeam: null,
+          activeTeam: null,
+          lastUpdated: serverTimestamp(),
+        });
+        // Auto-clear big X after 5 seconds
+        setTimeout(async () => {
+          try {
+            const gameStateRef2 = doc(db, 'gameState', 'current');
+            await updateDoc(gameStateRef2, { bigX: false, lastUpdated: serverTimestamp() });
+          } catch (e) {
+            console.error('Error clearing big X:', e);
+          }
+        }, 5000);
+      }
     }
+
+    console.log('Control: Guess evaluated');
   }
 
   /**

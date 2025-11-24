@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
+import React from 'react';
 // import { doc, getDoc } from 'firebase/firestore'; // Not needed as we use manager
 
 // Custom hook to store the previous value of a state or prop
@@ -207,15 +208,21 @@ export default function DisplayPage() {
     };
   }, []);
 
-  // Show score animation when scores change
+  // Show score animation when individual team scores change
+  const prevScoresRef = React.useRef<Record<string, number>>({});
   useEffect(() => {
-    if (teams.length > 0) {
-      const totalScore = teams.reduce((sum, team) => sum + team.score, 0);
-      if (totalScore > 0) {
-        setScoreAnimation({ show: true, amount: totalScore, team: 'all' });
+    if (teams.length === 0) return;
+    teams.forEach((team) => {
+      const prev = prevScoresRef.current[team.id] ?? 0;
+      const diff = team.score - prev;
+      if (diff > 0) {
+        // Animate the amount added for this team
+        setScoreAnimation({ show: true, amount: diff, team: team.id });
         setTimeout(() => setScoreAnimation({ show: false, amount: 0, team: '' }), 3000);
       }
-    }
+      // Update stored score
+      prevScoresRef.current[team.id] = team.score;
+    });
   }, [teams]);
 
   // Show logo only screen
@@ -277,7 +284,7 @@ export default function DisplayPage() {
         </div>
 
         {/* Round 1 Current Guessing Team */}
-        {gameState?.currentRound === 'round1' && gameState?.round1Active && gameState?.round1CurrentGuessingTeam && (
+        {['pre-show', 'round1', 'round3'].includes(gameState?.currentRound || '') && gameState?.round1CurrentGuessingTeam && (
           <div className="mt-4 text-center">
             <div className="bg-blue-600 text-white px-4 py-2 rounded-lg inline-block">
               <span className="font-bold">
