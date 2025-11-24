@@ -260,15 +260,17 @@ export default function ControlPage() {
     console.log('Control: Current round is:', gameState?.currentRound);
     setLoading(true);
     try {
+      // Hide all answers first to reset state
+      await gameStateManager.hideAllAnswers(questionId);
+
       // When selecting a question, reset to initial state
-      // In Round 1, questions should be revealed by default
-      const isRound1 = gameState?.currentRound === 'round1';
-      console.log('Control: Is Round 1?', isRound1);
-      console.log('Control: Will set questionRevealed to:', isRound1 ? true : false);
+      // In Round 1, Round 3, and Pre-Show, questions should be revealed by default
+      const shouldRevealQuestion = ['round1', 'round3', 'pre-show'].includes(gameState?.currentRound || '');
+      console.log('Control: Should reveal question?', shouldRevealQuestion);
 
       const updates = {
         currentQuestion: questionId,
-        questionRevealed: isRound1 ? true : false, // Round 1 shows questions by default
+        questionRevealed: shouldRevealQuestion, // Reveal for round1, round3, pre-show
         revealMode: 'one-by-one' as const,
         guessMode: false
       };
@@ -871,147 +873,152 @@ export default function ControlPage() {
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold mb-2">Current Question</h2>
 
-              {currentQuestion ? (
-                <div>
-                  <h3 className="font-bold text-lg mb-2">{currentQuestion.text}</h3>
+              {(() => {
+                const selectedQuestion = loadedQuestions.find(q => q.id === gameState?.currentQuestion);
+                return selectedQuestion ? (
+                  <div>
+                    <h3 className="font-bold text-lg mb-2">{selectedQuestion.text}</h3>
 
-                  {!gameState?.questionRevealed ? (
-                    <div className="space-y-3">
-                      <div className="flex flex-col md:flex-row md:space-x-2 space-y-2 md:space-y-0">
-                        <button
-                          onClick={() => handleUpdateGameState({
-                            questionRevealed: true,
-                            revealMode: 'one-by-one'
-                          })}
-                          className="flex-1 bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-medium"
-                          disabled={loading}
-                        >
-                          Reveal Question
-                        </button>
-                        <button
-                          onClick={async () => {
-                            await handleUpdateGameState({
-                              questionRevealed: false,
-                              revealMode: 'all-at-once',
-                              guessMode: true
-                            });
-                            if (currentQuestion) {
+                    {!gameState?.questionRevealed ? (
+                      <div className="space-y-3">
+                        <div className="flex flex-col md:flex-row md:space-x-2 space-y-2 md:space-y-0">
+                          <button
+                            onClick={() => handleUpdateGameState({
+                              questionRevealed: true,
+                              revealMode: 'one-by-one'
+                            })}
+                            className="flex-1 bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 font-medium"
+                            disabled={loading}
+                          >
+                            Reveal Question
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await handleUpdateGameState({
+                                questionRevealed: false,
+                                revealMode: 'all-at-once',
+                                guessMode: true
+                              });
                               await handleRevealAllAnswers();
-                            }
-                          }}
-                          className="flex-1 bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 font-medium"
-                          disabled={loading}
-                        >
-                          Reveal All Answers
-                        </button>
-                      </div>
-
-                      {gameState?.revealMode === 'all-at-once' && gameState?.guessMode && (
-                        <div className="mt-3 pt-3 border-t border-gray-300">
-                          <button
-                            onClick={() => handleUpdateGameState({ questionRevealed: true })}
-                            className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 w-full font-medium"
+                            }}
+                            className="flex-1 bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 font-medium"
                             disabled={loading}
                           >
-                            Reveal Question (After Guessing)
+                            Reveal All Answers
                           </button>
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="mt-4 space-y-3">
-                      <div className="text-sm text-green-600 font-semibold mb-3">
-                        ✓ Question is visible on display
-                      </div>
 
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <span className="font-medium text-sm">Reveal Mode:</span>
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleUpdateGameState({ revealMode: 'one-by-one' })}
-                            className={`px-3 py-1 rounded text-xs font-medium ${gameState?.revealMode === 'one-by-one'
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                              }`}
-                            disabled={loading}
-                          >
-                            One by One
-                          </button>
-                          <button
-                            onClick={() => handleUpdateGameState({ revealMode: 'all-at-once' })}
-                            className={`px-3 py-1 rounded text-xs font-medium ${gameState?.revealMode === 'all-at-once'
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                              }`}
-                            disabled={loading}
-                          >
-                            All at Once
-                          </button>
-                        </div>
-                      </div>
-
-                      {gameState?.revealMode === 'all-at-once' && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium text-sm">Guess Mode:</span>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={gameState?.guessMode || false}
-                                onChange={() => handleUpdateGameState({ guessMode: !gameState?.guessMode })}
-                                className="sr-only peer"
-                                disabled={loading}
-                              />
-                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                            </label>
+                        {gameState?.revealMode === 'all-at-once' && gameState?.guessMode && (
+                          <div className="mt-3 pt-3 border-t border-gray-300">
+                            <button
+                              onClick={() => handleUpdateGameState({ questionRevealed: true })}
+                              className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 w-full font-medium"
+                              disabled={loading}
+                            >
+                              Reveal Question (After Guessing)
+                            </button>
                           </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-4 space-y-3">
+                        <div className="text-sm text-green-600 font-semibold mb-3">
+                          ✓ Question is visible on display
+                        </div>
 
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                          <span className="font-medium text-sm">Reveal Mode:</span>
                           <div className="flex space-x-2">
                             <button
-                              onClick={() => handleRevealAllAnswers()}
-                              className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
+                              onClick={() => handleUpdateGameState({ revealMode: 'one-by-one' })}
+                              className={`px-3 py-1 rounded text-xs font-medium ${gameState?.revealMode === 'one-by-one'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                }`}
                               disabled={loading}
                             >
-                              Reveal All Answers
+                              One by One
                             </button>
                             <button
-                              onClick={() => handleHideAllAnswers()}
-                              className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                              onClick={() => handleUpdateGameState({ revealMode: 'all-at-once' })}
+                              className={`px-3 py-1 rounded text-xs font-medium ${gameState?.revealMode === 'all-at-once'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                }`}
                               disabled={loading}
                             >
-                              Hide All Answers
+                              All at Once
                             </button>
                           </div>
+                        </div>
 
-                          {gameState?.guessMode && (
-                            <div className="mt-3 pt-3 border-t border-gray-300">
+                        {gameState?.revealMode === 'all-at-once' && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-sm">Guess Mode:</span>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={gameState?.guessMode || false}
+                                  onChange={() => handleUpdateGameState({ guessMode: !gameState?.guessMode })}
+                                  className="sr-only peer"
+                                  disabled={loading}
+                                />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                              </label>
+                            </div>
+
+                            <div className="flex space-x-2">
                               <button
-                                onClick={() => handleUpdateGameState({ questionRevealed: true })}
-                                className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 w-full"
+                                onClick={() => handleRevealAllAnswers()}
+                                className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
                                 disabled={loading}
                               >
-                                Reveal Question
+                                Reveal All Answers
+                              </button>
+                              <button
+                                onClick={() => handleHideAllAnswers()}
+                                className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                                disabled={loading}
+                              >
+                                Hide All Answers
                               </button>
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  No question selected
-                </div>
-              )}
+
+                            {gameState?.guessMode && (
+                              <div className="mt-3 pt-3 border-t border-gray-300">
+                                <button
+                                  onClick={() => handleUpdateGameState({ questionRevealed: true })}
+                                  className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 w-full"
+                                  disabled={loading}
+                                >
+                                  Reveal Question
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    No question selected
+                  </div>
+                );
+              })()}
             </div>
 
-            {gameState?.currentRound === 'round1' && (
+            {(['pre-show', 'round1', 'round3'].includes(gameState?.currentRound || '')) && (
               <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-bold mb-4">Round 1 Gameplay</h2>
+                <h2 className="text-xl font-bold mb-4">
+                  {gameState?.currentRound === 'pre-show' && 'Pre-Show Gameplay'}
+                  {gameState?.currentRound === 'round1' && 'Round 1 Gameplay'}
+                  {gameState?.currentRound === 'round3' && 'Round 3 Gameplay'}
+                </h2>
 
                 <div className="space-y-4">
-                  {!gameState?.round1Active && (
+                  {!gameState?.round1Active && gameState?.currentRound === 'round1' && (
                     <button
                       onClick={handleStartRound1}
                       className="w-full p-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700"
@@ -1039,7 +1046,7 @@ export default function ControlPage() {
                               {isCurrentGuessing && (
                                 <span className="text-xs font-bold text-blue-600">CURRENT TURN</span>
                               )}
-                              {!isCurrentGuessing && isOut && (
+                              {gameState?.currentRound === 'round1' && !isCurrentGuessing && isOut && (
                                 <span className="text-xs font-bold text-red-500">OUT</span>
                               )}
                             </div>
@@ -1060,7 +1067,7 @@ export default function ControlPage() {
                               />
                               <button
                                 onClick={() => handleSelectRound1GuessingTeam(team.id as 'red' | 'green' | 'blue')}
-                                disabled={loading || isOut || isCurrentGuessing}
+                                disabled={loading || (gameState?.currentRound === 'round1' && (isOut || isCurrentGuessing))}
                                 className={`p-2 w-full rounded text-sm font-medium ${isCurrentGuessing
                                   ? 'bg-blue-600 text-white'
                                   : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -1089,14 +1096,17 @@ export default function ControlPage() {
                             disabled={loading}
                           >
                             <option value="">Select answer...</option>
-                            {currentQuestion?.answers
-                              ?.slice(0, currentQuestion.answerCount)
-                              .filter((a) => !a.revealed)
-                              .map((answer, index) => (
-                                <option key={answer.id} value={answer.id}>
-                                  #{index + 1}: {answer.text} (₹{answer.value})
-                                </option>
-                              ))}
+                            {(() => {
+                              const question = loadedQuestions.find(q => q.id === gameState?.currentQuestion);
+                              return question?.answers
+                                ?.slice(0, question.answerCount)
+                                .filter((a) => !a.revealed)
+                                .map((answer, index) => (
+                                  <option key={answer.id} value={answer.id}>
+                                    #{index + 1}: {answer.text} (₹{answer.value})
+                                  </option>
+                                ));
+                            })()}
                           </select>
                         </div>
 
@@ -1130,22 +1140,24 @@ export default function ControlPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-col md:flex-row md:space-x-3 space-y-2 md:space-y-0 pt-2">
-                        <button
-                          onClick={handleEndRound1}
-                          className="flex-1 p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
-                          disabled={loading}
-                        >
-                          END ROUND 1
-                        </button>
-                        <button
-                          onClick={handleResetRound1Strikes}
-                          className="p-3 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600"
-                          disabled={loading}
-                        >
-                          Reset Strikes
-                        </button>
-                      </div>
+                      {gameState?.currentRound === 'round1' && (
+                        <div className="flex flex-col md:flex-row md:space-x-3 space-y-2 md:space-y-0 pt-2">
+                          <button
+                            onClick={handleEndRound1}
+                            className="flex-1 p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
+                            disabled={loading}
+                          >
+                            END ROUND 1
+                          </button>
+                          <button
+                            onClick={handleResetRound1Strikes}
+                            className="p-3 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600"
+                            disabled={loading}
+                          >
+                            Reset Strikes
+                          </button>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
