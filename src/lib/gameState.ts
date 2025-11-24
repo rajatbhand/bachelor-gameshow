@@ -51,6 +51,7 @@ export interface GameState {
     activeQuestionId: string | null;
     timerDuration: number;
   };
+  round2Options?: string[]; // The three questions selected by operator for the round
   round2CurrentTeam?: 'red' | 'green' | 'blue' | null; // Which team is currently playing Round 2
   round2UsedQuestionIds?: string[]; // Track questions used across all teams
 }
@@ -152,6 +153,24 @@ export class GameStateManager {
         await setDoc(teamRef, teamData);
       }
     }
+  }
+
+  // Update round2Options (the three questions selected for the round)
+  async setRound2Options(options: string[]): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, { round2Options: options, lastUpdated: serverTimestamp() });
+  }
+
+  // Clear round2 state after round ends
+  async clearRound2State(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
+      round2Options: [],
+      round2CurrentTeam: null,
+      round2UsedQuestionIds: [],
+      round2State: null,
+      lastUpdated: serverTimestamp(),
+    });
   }
 
   // Listen to game state changes
@@ -602,6 +621,7 @@ export class GameStateManager {
       revealMode: 'one-by-one',
       // Reset any leftover Round 2 state
       round2State: null,
+      round2Options: [], // three questions selected for the round
       round2CurrentTeam: null,
       round2UsedQuestionIds: [],
       // Reset common fields
