@@ -310,21 +310,6 @@ export default function DisplayPage() {
         {(!gameState?.round2State || gameState.round2State.phase !== 'selection') && (
           currentQuestion ? (
             <div className="max-w-6xl mx-auto">
-              {/* Round 2 Team Banner */}
-              {gameState?.currentRound === 'round2' && gameState.round2CurrentTeam && (
-                <div className="text-center mb-6 p-6 bg-black bg-opacity-40 rounded-xl">
-                  <div className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">Playing Now</div>
-                  <div
-                    className="text-5xl font-black tracking-wider"
-                    style={{
-                      color: teams.find(t => t.id === gameState.round2CurrentTeam)?.color
-                    }}
-                  >
-                    {teams.find(t => t.id === gameState.round2CurrentTeam)?.name}
-                  </div>
-                </div>
-              )}
-
               {/* Question */}
               <div className="bg-gray-800 rounded-lg p-6 mb-8">
                 {gameState?.questionRevealed ? (
