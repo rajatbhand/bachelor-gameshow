@@ -221,6 +221,26 @@ export default function DisplayPage() {
           <div className="text-2xl font-bold">
             Round: {gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}
           </div>
+
+          {/* Team "IS GUESSING" Banner - Works for Pre-Show, Round 1, Round 2, Round 3 */}
+          <div className="flex justify-center">
+            {(['pre-show', 'round1', 'round2', 'round3'].includes(gameState?.currentRound || '')) &&
+              (gameState?.round1CurrentGuessingTeam || gameState?.round2CurrentTeam) && (
+                <div className="flex justify-center">
+                  <div
+                    className="px-8 py-2 rounded-lg shadow-2xl animate-pulse"
+                    style={{
+                      backgroundColor: teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.color || '#6b21a8'
+                    }}
+                  >
+                    <div className="text-white text-xl font-black tracking-normal">
+                      🎤 {teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.name.toUpperCase()} IS PLAYING
+                    </div>
+                  </div>
+                </div>
+              )}
+          </div>
+
           <div className="flex space-x-8">
             {teams.map((team) => {
               const strikes = gameState?.round1Strikes?.[team.id] || 0;
@@ -243,8 +263,8 @@ export default function DisplayPage() {
                   {/* Round 1 Strikes Display */}
                   {gameState?.currentRound === 'round1' && (
                     <div className="mt-2 flex items-center justify-center space-x-1">
-                      <span className={strikes >= 1 ? 'text-gray-400 text-xl' : 'text-red-500 text-xl'}>❤️</span>
-                      <span className={strikes >= 2 ? 'text-gray-400 text-xl' : 'text-red-500 text-xl'}>❤️</span>
+                      <span className={strikes >= 1 ? 'text-gray-400 text-xl' : 'text-red-500 text-xl'}>{strikes >= 1 ? '💔' : '❤️'}</span>
+                      <span className={strikes >= 2 ? 'text-gray-400 text-xl' : 'text-red-500 text-xl'}>{strikes >= 2 ? '💔' : '❤️'}</span>
                       {isOut && (
                         <span className="ml-2 text-xs text-red-400 font-bold">OUT</span>
                       )}
@@ -255,23 +275,6 @@ export default function DisplayPage() {
             })}
           </div>
         </div>
-
-        {/* Team "IS GUESSING" Banner - Works for Pre-Show, Round 1, Round 2, Round 3 */}
-        {(['pre-show', 'round1', 'round2', 'round3'].includes(gameState?.currentRound || '')) &&
-          (gameState?.round1CurrentGuessingTeam || gameState?.round2CurrentTeam) && (
-            <div className="fixed top-20 left-0 right-0 z-20 flex justify-center">
-              <div
-                className="px-8 py-2 rounded-lg shadow-2xl animate-pulse"
-                style={{
-                  backgroundColor: teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.color || '#6b21a8'
-                }}
-              >
-                <div className="text-white text-xl font-black tracking-normal">
-                  🎤 {teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.name.toUpperCase()} IS PLAYING
-                </div>
-              </div>
-            </div>
-          )}
 
         {/* Audience Voting Status */}
         {gameState?.audienceWindow && (
@@ -380,7 +383,7 @@ export default function DisplayPage() {
                         {answer.revealed ? (
                           <div className="text-center">
                             <div className="text-2xl font-bold text-white">{answer.text}</div>
-                            {/*<div className="text-lg font-semibold text-green-400">₹{answer.value.toLocaleString()}</div>*/}
+                            <div className="text-lg font-semibold text-green-400">₹{answer.value.toLocaleString()}</div>
                           </div>
                         ) : (
                           <div className="text-4xl font-bold text-gray-400">?</div>
