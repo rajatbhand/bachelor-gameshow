@@ -18,7 +18,8 @@ import {
   writeBatch,
   where,
   setDoc,
-  deleteDoc
+  deleteDoc,
+  deleteField
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -226,17 +227,6 @@ export default function ControlPage() {
       await gameStateManager.updateTeamScore(teamId, change);
     } catch (error) {
       console.error('Error updating score:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApplyRound2Bonus = async () => {
-    setLoading(true);
-    try {
-      await gameStateManager.applyRound2Bonus();
-    } catch (error) {
-      console.error('Error applying Round 2 bonus:', error);
     } finally {
       setLoading(false);
     }
@@ -635,7 +625,7 @@ export default function ControlPage() {
   const handleRound2StartTimer = async () => {
     setLoading(true);
     try {
-      await gameStateManager.startRound2Timer(); // 90 seconds for Round 2
+      await gameStateManager.startRound2Timer(); // 60 seconds for Round 2
       console.log('Control: Round 2 timer started');
     } catch (error) {
       console.error('Error starting Round 2 timer:', error);
@@ -1227,24 +1217,23 @@ export default function ControlPage() {
                   )}
                 </div>
 
-                {/* Phase 1: Selection */}
-                {gameState.round2State?.phase === 'selection' && (
-                  <div className="space-y-3">
-                    {/* Step 1: Select Questions */}
-                    <div>
+                {/* Phase 1: Operator manually selects 3 questions for the whole round */}
+                {(!gameState?.round2Options || gameState.round2Options.length === 0) &&
+                  (!gameState?.round2UsedQuestionIds || gameState.round2UsedQuestionIds.length === 0) && (
+                    <div className="space-y-3">
                       <div className="flex justify-between items-end mb-2">
                         <div className="text-sm font-semibold text-gray-700">
-                          Select 3 Questions to Offer
+                          Step 1: Select 3 Questions for Round 2
                         </div>
                         <div className={`text-xs font-bold ${round2Selection.length === 3 ? 'text-green-600' : 'text-gray-500'}`}>
                           {round2Selection.length}/3 Selected
                         </div>
                       </div>
 
-                      <div className="border rounded-lg overflow-hidden">
+                      <div className="border rounded-lg overflow-hidden max-h-96">
                         <div className="overflow-y-auto bg-gray-50 divide-y divide-gray-200">
                           {loadedQuestions
-                            .filter(q => !(gameState.round2UsedQuestionIds || []).includes(q.id))
+                            .filter(q => !(gameState?.round2UsedQuestionIds || []).includes(q.id))
                             .map((q, i) => (
                               <label key={q.id || i} className="flex items-center p-3 hover:bg-gray-100 cursor-pointer transition-colors">
                                 <input
@@ -1271,47 +1260,88 @@ export default function ControlPage() {
                       </div>
 
                       <button
-                        onClick={handleRound2SelectOptions}
-                        disabled={round2Selection.length !== 3 || loading}
-                        className="w-full mt-3 p-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        onClick={async () => {
+                          setLoading(true);
+                          try {
+                            await gameStateManager.setRound2Options(round2Selection);
+                            // Clear round2State so question pool becomes visible
+                            await gameStateManager.updateGameState({ round2State: deleteField() as any });
+                            setRound2Selection([]); // Clear selection after setting
+                          } finally {
+                            setLoading(false);
+                          }
+                        }}
+                        className="w-full p-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                        disabled={loading || round2Selection.length !== 3}
                       >
-                        SHOW OPTIONS ON SCREEN
+                        SET THESE 3 QUESTIONS FOR ROUND 2
                       </button>
                     </div>
+                  )}
 
-                    {/* Step 2: Select Active Question */}
-                    {gameState.round2State?.availableQuestionIds && gameState.round2State.availableQuestionIds.length === 3 && (
-                      <div className="pt-6 border-t border-gray-200">
-                        <div className="text-sm font-semibold text-gray-700 mb-3">
-                          Select the Chosen Question
-                        </div>
-                        <div className="space-y-1">
-                          {gameState.round2State.availableQuestionIds.map((id) => {
-                            const q = loadedQuestions.find(q => q.id === id);
-                            const isSelected = gameState.round2State?.activeQuestionId === id;
-                            return (
-                              <button
-                                key={id}
-                                onClick={() => handleRound2SelectQuestion(id)}
-                                className={`p-4 rounded-lg border-2 text-left transition-all ${isSelected
-                                  ? 'bg-blue-50 border-blue-500 shadow-md'
-                                  : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-gray-50'
-                                  }`}
-                              >
-                                <div className={`text-sm font-bold mb-1 ${isSelected ? 'text-blue-800' : 'text-gray-800'}`}>
-                                  {q?.text || 'Unknown Question'}
-                                </div>
-                                {isSelected && (
-                                  <div className="text-xs font-bold text-blue-600 uppercase tracking-wider">
-                                    ✓ Active
-                                  </div>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
+                {/* Phase 2: Teams sequentially pick from the pool */}
+                {gameState?.round2Options && gameState.round2Options.length > 0 && !gameState?.round2State && (
+                  <div className="space-y-3">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                      <div className="text-sm font-semibold text-blue-800 mb-1">
+                        Available Questions: {gameState.round2Options.length}
                       </div>
-                    )}
+                      <div className="text-xs text-blue-600">
+                        {gameState.round2CurrentTeam
+                          ? `Team ${teams.find(t => t.id === gameState.round2CurrentTeam)?.name} - Choose a question`
+                          : 'Select a team to begin'}
+                      </div>
+                    </div>
+
+                    {/* Show available questions */}
+                    <div className="space-y-2">
+                      {gameState.round2Options.map((qid) => {
+                        const q = loadedQuestions.find(q => q.id === qid);
+                        return (
+                          <button
+                            key={qid}
+                            onClick={async () => {
+                              if (!gameState.round2CurrentTeam) {
+                                alert('Please select a team first!');
+                                return;
+                              }
+                              setLoading(true);
+                              try {
+                                // Hide all answers first (in case question was used before)
+                                await gameStateManager.hideAllAnswers(qid);
+
+                                // Mark this question as used
+                                const used = [...(gameState?.round2UsedQuestionIds || []), qid];
+                                await gameStateManager.updateGameState({ round2UsedQuestionIds: used });
+
+                                // Remove from pool
+                                const remaining = gameState.round2Options!.filter(id => id !== qid);
+                                await gameStateManager.setRound2Options(remaining);
+
+                                // Set as current question and enter gameplay phase
+                                await gameStateManager.updateGameState({
+                                  currentQuestion: qid,
+                                  questionRevealed: true,
+                                  round2State: {
+                                    phase: 'question',
+                                    availableQuestionIds: [],
+                                    activeQuestionId: qid,
+                                    timerDuration: 60
+                                  }
+                                });
+                              } finally {
+                                setLoading(false);
+                              }
+                            }}
+                            className="w-full p-4 bg-white border-2 border-gray-200 rounded-lg text-left hover:border-indigo-400 hover:bg-indigo-50 transition-all disabled:opacity-50"
+                            disabled={loading || !gameState.round2CurrentTeam}
+                          >
+                            <div className="text-sm font-bold text-gray-800 mb-1">{q?.text || 'Unknown Question'}</div>
+                            <div className="text-xs text-gray-500 font-mono">{qid}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
@@ -1327,7 +1357,7 @@ export default function ControlPage() {
                           : 'bg-green-600 text-white hover:bg-green-700'
                           }`}
                       >
-                        <span>{gameState.timerActive ? 'STOP TIMER' : 'START 90s TIMER'}</span>
+                        <span>{gameState.timerActive ? 'STOP TIMER' : 'START 60s TIMER'}</span>
                       </button>
                     </div>
 
@@ -1384,6 +1414,32 @@ export default function ControlPage() {
                           </div>
                         ))}
                       </div>
+                    </div>
+
+                    {/* Finish Round Button */}
+                    <div className="pt-3 border-t border-gray-200">
+                      <button
+                        onClick={async () => {
+                          setLoading(true);
+                          try {
+                            await gameStateManager.updateGameState({
+                              round2State: deleteField() as any,
+                              round2CurrentTeam: null,
+                              currentQuestion: null,
+                              questionRevealed: false,
+                              // Stop timer when finishing round
+                              timerActive: false,
+                              timerStartTime: null
+                            });
+                          } finally {
+                            setLoading(false);
+                          }
+                        }}
+                        className="w-full p-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700"
+                        disabled={loading}
+                      >
+                        FINISH THIS TEAM'S ROUND
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1494,41 +1550,6 @@ export default function ControlPage() {
                   <div>🎵 Host Answers: /sounds/host-answer-reveal.mp3</div>
                 </div>
               </div>
-            </div>
-
-            {/* Round 2 Bonus */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Round 2 Bonus</h2>
-              <button
-                onClick={handleApplyRound2Bonus}
-                className="w-full p-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700"
-                disabled={loading || gameState?.round2BonusApplied}
-              >
-                {gameState?.round2BonusApplied ? 'BONUS APPLIED' : 'APPLY ROUND 2 BONUS'}
-              </button>
-            </div>
-
-            {/* Timer Controls */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Timer Controls</h2>
-              <button
-                onClick={() => {
-                  if (gameState?.timerActive) {
-                    // Stop the timer
-                    handleUpdateGameState({ timerActive: false, timerStartTime: null });
-                  } else {
-                    // Start the timer
-                    handleUpdateGameState({ timerActive: true, timerStartTime: Date.now() });
-                  }
-                }}
-                className={`w-full p-3 rounded-lg font-bold text-white ${gameState?.timerActive
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : 'bg-green-600 hover:bg-green-700'
-                  }`}
-                disabled={loading}
-              >
-                {gameState?.timerActive ? 'STOP 52s TIMER' : 'START 52s TIMER'}
-              </button>
             </div>
 
             {/* Reset Game */}

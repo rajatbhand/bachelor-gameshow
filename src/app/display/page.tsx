@@ -26,12 +26,8 @@ export default function DisplayPage() {
   });
 
   // --- TIMER ANIMATION STATE ---
-  const [timeLeft, setTimeLeft] = useState(52);
-  const [flippedCards, setFlippedCards] = useState<boolean[]>(Array(52).fill(false));
+  const [timeLeft, setTimeLeft] = useState(60);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // --- CARD DECK LOGIC ---
-  const [shuffledDeck, setShuffledDeck] = useState<string[]>([]);
 
   // --- ROUND 2 STATE ---
   const [round2Options, setRound2Options] = useState<Question[]>([]);
@@ -39,11 +35,10 @@ export default function DisplayPage() {
   useEffect(() => {
     const fetchRound2Options = async () => {
       if (gameState?.currentRound === 'round2' &&
-        gameState.round2State?.phase === 'selection' &&
-        gameState.round2State.availableQuestionIds.length > 0) {
+        gameState?.round2Options && gameState.round2Options.length > 0) {
 
         try {
-          const questions = await gameStateManager.getQuestionsByIds(gameState.round2State.availableQuestionIds);
+          const questions = await gameStateManager.getQuestionsByIds(gameState.round2Options);
           setRound2Options(questions);
         } catch (error) {
           console.error("Error fetching Round 2 options:", error);
@@ -54,23 +49,7 @@ export default function DisplayPage() {
     };
 
     fetchRound2Options();
-  }, [gameState?.currentRound, gameState?.round2State?.phase, gameState?.round2State?.availableQuestionIds]);
-
-  useEffect(() => {
-    if (gameState?.timerActive) {
-      // Create a standard 52-card deck
-      const suits = ['club', 'diamond', 'heart', 'spade'];
-      const ranks = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king'];
-      const deck = suits.flatMap(suit => ranks.map(rank => `${suit}_${rank}.png`));
-
-      // Shuffle the deck (Fisher-Yates algorithm)
-      for (let i = deck.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [deck[i], deck[j]] = [deck[j], deck[i]];
-      }
-      setShuffledDeck(deck);
-    }
-  }, [gameState?.timerActive]);
+  }, [gameState?.currentRound, gameState?.round2Options]);
 
   // --- AUDIO SETUP START ---
   const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -134,7 +113,9 @@ export default function DisplayPage() {
   }, [gameState, currentQuestion, prevGameState, prevCurrentQuestion]);
   // --- AUDIO SETUP END ---
 
-  // --- TIMER LOGIC & CARD REVEAL ---
+  // --- TIMER LOGIC ---
+  const [timesUp, setTimesUp] = useState(false);
+
   useEffect(() => {
     if (gameState?.timerActive && gameState.timerStartTime) {
       timerRef.current = setInterval(() => {
@@ -143,23 +124,15 @@ export default function DisplayPage() {
 
         setTimeLeft(remaining);
 
-        // Flip cards based on elapsed time
-        const newFlipped = Array(52).fill(false);
-        for (let i = 0; i < elapsed; i++) {
-          if (i < 52) {
-            newFlipped[i] = true;
-          }
-        }
-        setFlippedCards(newFlipped);
-
         if (remaining === 0) {
+          setTimesUp(true);
           if (timerRef.current) clearInterval(timerRef.current);
         }
       }, 250); // Check 4 times a second for accuracy
     } else {
       // Reset timer visuals when it's not active
-      setTimeLeft(52);
-      setFlippedCards(Array(52).fill(false));
+      setTimeLeft(gameState?.timerDuration || 60);
+      setTimesUp(false);
     }
 
     return () => {
@@ -283,16 +256,22 @@ export default function DisplayPage() {
           </div>
         </div>
 
-        {/* Round 1 Current Guessing Team */}
-        {['pre-show', 'round1', 'round3'].includes(gameState?.currentRound || '') && gameState?.round1CurrentGuessingTeam && (
-          <div className="mt-4 text-center">
-            <div className="bg-blue-600 text-white px-4 py-2 rounded-lg inline-block">
-              <span className="font-bold">
-                🎤 {teams.find(t => t.id === gameState.round1CurrentGuessingTeam)?.name.toUpperCase()} IS GUESSING
-              </span>
+        {/* Team "IS GUESSING" Banner - Works for Pre-Show, Round 1, Round 2, Round 3 */}
+        {(['pre-show', 'round1', 'round2', 'round3'].includes(gameState?.currentRound || '')) &&
+          (gameState?.round1CurrentGuessingTeam || gameState?.round2CurrentTeam) && (
+            <div className="fixed top-20 left-0 right-0 z-20 flex justify-center">
+              <div
+                className="px-8 py-2 rounded-lg shadow-2xl animate-pulse"
+                style={{
+                  backgroundColor: teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.color || '#6b21a8'
+                }}
+              >
+                <div className="text-white text-xl font-black tracking-normal">
+                  🎤 {teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.name.toUpperCase()} IS PLAYING
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Audience Voting Status */}
         {gameState?.audienceWindow && (
@@ -309,23 +288,8 @@ export default function DisplayPage() {
       <div className="p-8">
 
         {/* ROUND 2 SELECTION PHASE */}
-        {gameState?.currentRound === 'round2' && gameState.round2State?.phase === 'selection' && (
+        {gameState?.currentRound === 'round2' && round2Options.length > 0 && !gameState?.round2State && (
           <div className="max-w-7xl mx-auto">
-            {/* Team Banner */}
-            {gameState.round2CurrentTeam && (
-              <div className="text-center mb-8 p-6 bg-black bg-opacity-40 rounded-xl">
-                <div className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">Playing Now</div>
-                <div
-                  className="text-5xl font-black tracking-wider"
-                  style={{
-                    color: teams.find(t => t.id === gameState.round2CurrentTeam)?.color
-                  }}
-                >
-                  {teams.find(t => t.id === gameState.round2CurrentTeam)?.name}
-                </div>
-              </div>
-            )}
-
             <h2 className="text-4xl font-bold text-center mb-12 text-indigo-300">Choose Your Question</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               {round2Options.map((q) => (
@@ -335,11 +299,6 @@ export default function DisplayPage() {
                   </div>
                 </div>
               ))}
-              {round2Options.length === 0 && (
-                <div className="col-span-3 text-center text-gray-400 animate-pulse">
-                  Waiting for options...
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -433,10 +392,13 @@ export default function DisplayPage() {
               )}
             </div>
           ) : (
-            <div className="text-center">
-              <h2 className="text-4xl font-bold mb-4">No Question Selected</h2>
-              <p className="text-xl text-gray-400">Please select a question from the control panel</p>
-            </div>
+            /* Don't show "No Question Selected" for Round 2 */
+            gameState?.currentRound !== 'round2' && (
+              <div className="text-center">
+                <h2 className="text-4xl font-bold mb-4">No Question Selected</h2>
+                <p className="text-xl text-gray-400">Please select a question from the control panel</p>
+              </div>
+            )
           )
         )}
       </div>
@@ -491,25 +453,24 @@ export default function DisplayPage() {
         </div>
       )}
 
-      {/* Horizontal Timer Bar */}
+      {/* Timer Bar */}
       {gameState?.timerActive && (
         <div className="fixed bottom-0 left-0 right-0 h-32 bg-black bg-opacity-80 flex items-center justify-center p-4 z-30 overflow-hidden">
-          {/* Horizontal Card Strip */}
-          <div className="w-full flex items-center justify-center space-x-1">
-            {shuffledDeck.map((cardFace, index) => (
-              <div key={index} className="w-[1.7vw] h-[2.4vw] min-w-[24px] min-h-[34px] perspective-1000">
-                <div
-                  className={`relative w-full h-full transition-transform duration-700 transform-style-preserve-3d ${flippedCards[index] ? 'rotate-y-180' : ''}`}
-                >
-                  <div className="absolute w-full h-full backface-hidden">
-                    <img src="/cards/back-red.png" alt="Card Back" className="w-full h-full object-cover rounded-sm" />
-                  </div>
-                  <div className="absolute w-full h-full backface-hidden rotate-y-180">
-                    <img src={`/cards/${cardFace}`} alt="Card Face" className="w-full h-full object-cover rounded-sm" />
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="text-center">
+            <div className="text-7xl font-black text-white">
+              {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
+            </div>
+            <div className="text-sm text-gray-400 mt-2">TIME REMAINING</div>
+          </div>
+        </div>
+      )}
+
+      {/* TIME'S UP Overlay for Round 2 */}
+      {timesUp && gameState?.currentRound === 'round2' && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+          <div className="text-center animate-pulse">
+            <div className="text-9xl font-black text-yellow-400 mb-4">⏰</div>
+            <div className="text-8xl font-black text-white">TIME'S UP!</div>
           </div>
         </div>
       )}

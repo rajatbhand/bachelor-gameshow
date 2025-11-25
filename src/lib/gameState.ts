@@ -7,6 +7,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   query,
   orderBy,
   serverTimestamp,
@@ -25,13 +26,12 @@ export interface GameState {
   bigX: boolean;
   scorecardOverlay: boolean;
   audienceWindow: boolean;
-  round2BonusApplied: boolean;
   logoOnly: boolean;
   questionRevealed: boolean;
   revealMode: 'one-by-one' | 'all-at-once';
   guessMode: boolean;
   lastUpdated: unknown;
-  // Timer state
+  // Timer state (used by Round 2)
   timerActive: boolean;
   timerStartTime: number | null;
   timerDuration: number;
@@ -113,7 +113,6 @@ export class GameStateManager {
         bigX: false,
         scorecardOverlay: false,
         audienceWindow: false,
-        round2BonusApplied: false,
         logoOnly: true,
         questionRevealed: false,
         revealMode: 'one-by-one',
@@ -122,7 +121,7 @@ export class GameStateManager {
         // Timer state
         timerActive: false,
         timerStartTime: null,
-        timerDuration: 52,
+        timerDuration: 60,
         // Round 1 state
         round1Strikes: {
           red: 0,
@@ -414,38 +413,7 @@ export class GameStateManager {
     }
   }
 
-  // Apply Round 2 bonus
-  async applyRound2Bonus(): Promise<void> {
-    const gameStateRef = doc(db, 'gameState', 'current');
-    const gameStateDoc = await getDoc(gameStateRef);
 
-    if (gameStateDoc.exists()) {
-      const state = gameStateDoc.data() as GameState;
-      if (state.currentQuestion) {
-        const questionRef = doc(db, 'questions', state.currentQuestion);
-        const questionDoc = await getDoc(questionRef);
-
-        if (questionDoc.exists()) {
-          const question = questionDoc.data() as Question;
-          const correctAnswers = question.answers.filter(a =>
-            a.revealed && (a.attribution === 'red' || a.attribution === 'green' || a.attribution === 'blue')
-          );
-
-          if (correctAnswers.length >= 3) {
-            const multiplier = correctAnswers.length >= 4 ? 3 : 2;
-            const totalBonus = correctAnswers.reduce((sum, answer) => sum + answer.value, 0) * multiplier;
-
-            // Apply bonus to active team
-            if (state.activeTeam && state.activeTeam !== 'host') {
-              await this.updateTeamScore(state.activeTeam, totalBonus);
-            }
-
-            await this.updateGameState({ round2BonusApplied: true });
-          }
-        }
-      }
-    }
-  }
 
   // Add question
   async addQuestion(question: Question): Promise<void> {
@@ -878,50 +846,28 @@ export class GameStateManager {
   }
 
   /**
-   * Start Round 2 Timer (90s)
-   */
+ * Start Round 2 Timer (60s)
+ */
   async startRound2Timer(): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
     await updateDoc(gameStateRef, {
       timerActive: true,
       timerStartTime: Date.now(),
-      timerDuration: 90,
+      timerDuration: 60,
       lastUpdated: serverTimestamp()
     });
   }
 
   /**
- * End Round 2 Timer - Auto-resets to selection phase for next team
+ * End Round 2 Timer - Just stops the timer without resetting state
  */
   async endRound2Timer(): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
-    const gameStateDoc = await getDoc(gameStateRef);
-
-    if (gameStateDoc.exists()) {
-      const state = gameStateDoc.data() as GameState;
-
-      // Add current question to used questions list
-      const usedQuestions = state.round2UsedQuestionIds || [];
-      if (state.currentQuestion && !usedQuestions.includes(state.currentQuestion)) {
-        usedQuestions.push(state.currentQuestion);
-      }
-
-      await updateDoc(gameStateRef, {
-        timerActive: false,
-        timerStartTime: null,
-        round2State: {
-          ...state.round2State,
-          phase: 'selection',           // Auto-reset to selection for next team
-          availableQuestionIds: [],     // Clear for next team
-          activeQuestionId: null
-        },
-        round2UsedQuestionIds: usedQuestions,  // Update used questions
-        round2CurrentTeam: null,        // Clear team so operator must select next
-        activeTeam: null,               // Clear active team
-        currentQuestion: null,          // Clear current question
-        lastUpdated: serverTimestamp()
-      });
-    }
+    await updateDoc(gameStateRef, {
+      timerActive: false,
+      timerStartTime: null,
+      lastUpdated: serverTimestamp()
+    });
   }
 
 
