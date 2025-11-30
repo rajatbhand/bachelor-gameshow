@@ -221,9 +221,6 @@ export default function DisplayPage() {
       {/* Header with Round and Teams */}
       <div className="bg-gray-800 p-4">
         <div className="flex justify-between items-center">
-          <div className="text-2xl font-bold">
-            Round: {gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}
-          </div>
 
           {/* Team "IS GUESSING" Banner - Works for Pre-Show, Round 1, Round 2, Round 3 */}
           <div className="flex justify-center">
