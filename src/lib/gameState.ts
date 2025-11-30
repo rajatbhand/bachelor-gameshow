@@ -31,6 +31,8 @@ export interface GameState {
   revealMode: 'one-by-one' | 'all-at-once';
   guessMode: boolean;
   lastUpdated: unknown;
+  // Voting round tracking
+  votingRound: number; // Track which voting round we're in (increments each time voting opens)
   // Timer state (used by Round 2)
   timerActive: boolean;
   timerStartTime: number | null;
@@ -81,12 +83,17 @@ export interface Answer {
 }
 
 export interface AudienceMember {
-  id: string;
+  id: string; // Using UPI ID as ID for tracking
   name: string;
-  phone: string;
+  phone: string; // Phone number for contact
+  upiId: string; // UPI ID used as unique identifier
   team: 'red' | 'green' | 'blue';
   submittedAt: unknown;
+  votingRound: number; // Track which round this vote was cast in
+  previousTeam: 'red' | 'green' | 'blue' | null; // Track if voter switched teams
+  updatedAt: unknown; // Timestamp of last update
 }
+
 
 // Game State Management
 export class GameStateManager {
@@ -118,10 +125,12 @@ export class GameStateManager {
         revealMode: 'one-by-one',
         guessMode: false,
         lastUpdated: serverTimestamp(),
+        // Voting round tracking
+        votingRound: 1,
         // Timer state
         timerActive: false,
         timerStartTime: null,
-        timerDuration: 60,
+        timerDuration: 90,
         // Round 1 state
         round1Strikes: {
           red: 0,
@@ -305,8 +314,25 @@ export class GameStateManager {
       const answerToReveal = question.answers.find(answer => answer.id === answerId);
 
       if (answerToReveal) {
-        // Use manual amount if provided, otherwise use original value
-        const finalValue = manualAmount !== undefined ? manualAmount : answerToReveal.value;
+        // ROUND 3 SPECIAL LOGIC: Check if this is the 7th (last) reveal
+        const gameStateRef = doc(db, 'gameState', 'current');
+        const gameStateDoc = await getDoc(gameStateRef);
+        let finalValue = manualAmount !== undefined ? manualAmount : answerToReveal.value;
+
+        if (gameStateDoc.exists()) {
+          const gameState = gameStateDoc.data() as GameState;
+
+          // If Round 3 with 7 answers, enforce 6000 for the last reveal
+          if (gameState.currentRound === 'round3' && question.answers.length === 7) {
+            const currentRevealedCount = question.answers.filter(a => a.revealed).length;
+
+            // If this is the 7th reveal (6 already revealed), enforce 6000
+            if (currentRevealedCount === 6) {
+              finalValue = 6000;
+              console.log('Round 3: Last answer revealed - enforcing value of 6000');
+            }
+          }
+        }
 
         const updatedAnswers = question.answers.map(answer => {
           if (answer.id === answerId) {
@@ -315,7 +341,7 @@ export class GameStateManager {
               revealed: true,
               attribution,
               revealedAt: new Date().toISOString(),
-              value: finalValue // Update the value if manual amount is provided
+              value: finalValue // Will be 6000 if this is the 7th reveal in Round 3
             };
           }
           return answer;
@@ -366,13 +392,47 @@ export class GameStateManager {
     }
   }
 
-  // Submit audience member
-  async submitAudienceMember(member: Omit<AudienceMember, 'id' | 'submittedAt'>): Promise<void> {
-    await addDoc(collection(db, 'audience'), {
-      ...member,
-      submittedAt: serverTimestamp()
-    });
+  // Submit audience member - now with UPI ID-based tracking and vote change detection
+  async submitAudienceMember(member: Omit<AudienceMember, 'id' | 'submittedAt' | 'votingRound' | 'previousTeam' | 'updatedAt'>): Promise<void> {
+    // Use UPI ID as document ID for tracking across rounds
+    const upiId = member.upiId.trim().toLowerCase(); // Normalize UPI ID
+    const memberDocRef = doc(db, 'audience', upiId);
+
+    // Check if this UPI ID has voted before
+    const existingDoc = await getDoc(memberDocRef);
+
+    // Get current voting round (we'll increment each time voting opens)
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+    const currentRound = gameStateDoc.exists() ? (gameStateDoc.data().votingRound || 1) : 1;
+
+    if (existingDoc.exists()) {
+      // Voter exists - this is a vote change
+      const existingData = existingDoc.data() as AudienceMember;
+      const previousTeam = existingData.team;
+
+      // Update the vote with new team and track the change
+      await updateDoc(memberDocRef, {
+        name: member.name,
+        phone: member.phone,
+        team: member.team,
+        previousTeam: previousTeam !== member.team ? previousTeam : null, // Only set if actually changed
+        votingRound: currentRound,
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // New voter
+      await setDoc(memberDocRef, {
+        ...member,
+        upiId: upiId, // Store normalized UPI ID
+        submittedAt: serverTimestamp(),
+        votingRound: currentRound,
+        previousTeam: null, // First time voting
+        updatedAt: serverTimestamp()
+      });
+    }
   }
+
 
   // Get audience members
   async getAudienceMembers(): Promise<AudienceMember[]> {
@@ -389,10 +449,12 @@ export class GameStateManager {
   }
 
   // Get audience voting results and update team dugout counts
+  // Changed to count unique voters per team (latest vote only)
   async updateAudienceVotingResults(): Promise<void> {
     const members = await this.getAudienceMembers();
 
-    // Count votes per team
+    // Count votes per team based on LATEST votes only
+    // Since we use phone as ID, each member appears only once
     const voteCounts = {
       red: 0,
       green: 0,
@@ -405,7 +467,7 @@ export class GameStateManager {
       }
     });
 
-    // Update team dugout counts
+    // REPLACE team dugout counts (not add to existing)
     const teams = ['red', 'green', 'blue'] as const;
     for (const teamId of teams) {
       const teamRef = doc(db, 'teams', teamId);
@@ -413,8 +475,22 @@ export class GameStateManager {
     }
   }
 
+  // Get team switchers - voters who changed teams in the latest voting round
+  async getTeamSwitchers(): Promise<Array<{ name: string; upiId: string; previousTeam: 'red' | 'green' | 'blue'; currentTeam: 'red' | 'green' | 'blue' }>> {
+    const members = await this.getAudienceMembers();
 
+    // Filter for members who have a previousTeam set (indicating they switched)
+    const switchers = members
+      .filter(member => member.previousTeam !== null && member.previousTeam !== undefined)
+      .map(member => ({
+        name: member.name,
+        upiId: member.upiId,
+        previousTeam: member.previousTeam as 'red' | 'green' | 'blue',
+        currentTeam: member.team
+      }));
 
+    return switchers;
+  }
   // Add question
   async addQuestion(question: Question): Promise<void> {
     const questionRef = doc(db, 'questions', question.id);
@@ -509,7 +585,7 @@ export class GameStateManager {
       // Timer state
       timerActive: false,
       timerStartTime: null,
-      timerDuration: 52,
+      timerDuration: 90,
       // Round 1 state
       round1Strikes: {
         red: 0,
@@ -679,48 +755,12 @@ export class GameStateManager {
         }
       }
     } else {
-      // Wrong guess handling differs by round
-      if (state.currentRound === 'round1') {
-        // Round 1: add a strike (existing logic)
-        const newStrikes = currentStrikes + 1;
-        const updatedStrikes = {
-          ...state.round1Strikes,
-          [guessingTeam]: newStrikes,
-        };
-        const allTeamsOut =
-          updatedStrikes.red >= 2 &&
-          updatedStrikes.green >= 2 &&
-          updatedStrikes.blue >= 2;
-
-        await updateDoc(gameStateRef, {
-          round1Strikes: updatedStrikes,
-          round1CurrentGuessingTeam: null,
-          activeTeam: null,
-          round1Active: !allTeamsOut,
-          lastUpdated: serverTimestamp(),
-        });
-
-        if (allTeamsOut) {
-          console.log('Round 1 ended: All teams have 2 strikes');
-        }
-      } else {
-        // Pre-show or Round 3: just show big X and clear guessing team
-        await updateDoc(gameStateRef, {
-          bigX: true,
-          round1CurrentGuessingTeam: null,
-          activeTeam: null,
-          lastUpdated: serverTimestamp(),
-        });
-        // Auto-clear big X after 5 seconds
-        setTimeout(async () => {
-          try {
-            const gameStateRef2 = doc(db, 'gameState', 'current');
-            await updateDoc(gameStateRef2, { bigX: false, lastUpdated: serverTimestamp() });
-          } catch (e) {
-            console.error('Error clearing big X:', e);
-          }
-        }, 5000);
-      }
+      // Wrong guess - just clear guessing team (Big X is shown by control panel)
+      await updateDoc(gameStateRef, {
+        round1CurrentGuessingTeam: null,
+        activeTeam: null,
+        lastUpdated: serverTimestamp(),
+      });
     }
 
     console.log('Control: Guess evaluated');
@@ -853,7 +893,7 @@ export class GameStateManager {
     await updateDoc(gameStateRef, {
       timerActive: true,
       timerStartTime: Date.now(),
-      timerDuration: 60,
+      timerDuration: 90,
       lastUpdated: serverTimestamp()
     });
   }

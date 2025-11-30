@@ -19,6 +19,7 @@ export default function DisplayPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
+  const [teamSwitchers, setTeamSwitchers] = useState<Array<{ name: string; upiId: string; previousTeam: 'red' | 'green' | 'blue'; currentTeam: 'red' | 'green' | 'blue' }>>([]);
   const [scoreAnimation, setScoreAnimation] = useState<{ show: boolean; amount: number; team: string }>({
     show: false,
     amount: 0,
@@ -171,6 +172,8 @@ export default function DisplayPage() {
     // Subscribe to audience members
     const unsubscribeAudience = gameStateManager.subscribeToAudienceMembers((members) => {
       setAudienceMembers(members);
+      // Update team switchers when audience members change
+      gameStateManager.getTeamSwitchers().then(setTeamSwitchers).catch(console.error);
     });
 
     return () => {
@@ -243,8 +246,6 @@ export default function DisplayPage() {
 
           <div className="flex space-x-8">
             {teams.map((team) => {
-              const strikes = gameState?.round1Strikes?.[team.id] || 0;
-              const isOut = strikes >= 2;
               return (
                 <div key={team.id} className="text-center">
                   <div
@@ -260,16 +261,6 @@ export default function DisplayPage() {
                       <span className="text-yellow-400"> ({audienceMembers.filter(m => m.team === team.id).length} votes)</span>
                     )}
                   </div>
-                  {/* Round 1 Strikes Display */}
-                  {gameState?.currentRound === 'round1' && (
-                    <div className="mt-2 flex items-center justify-center space-x-1">
-                      <span className={strikes >= 1 ? 'text-gray-400 text-xl' : 'text-red-500 text-xl'}>{strikes >= 1 ? '💔' : '❤️'}</span>
-                      <span className={strikes >= 2 ? 'text-gray-400 text-xl' : 'text-red-500 text-xl'}>{strikes >= 2 ? '💔' : '❤️'}</span>
-                      {isOut && (
-                        <span className="ml-2 text-xs text-red-400 font-bold">OUT</span>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -285,6 +276,42 @@ export default function DisplayPage() {
             </div>
           </div>
         )}
+
+        {/* Team Switchers Display - Only show when voting is open */}
+        {gameState?.audienceWindow && teamSwitchers.length > 0 && (() => {
+          // Aggregate switchers by team transition
+          const switchCounts: Record<string, number> = {};
+          teamSwitchers.forEach(switcher => {
+            const key = `${switcher.previousTeam}->${switcher.currentTeam}`;
+            switchCounts[key] = (switchCounts[key] || 0) + 1;
+          });
+
+          return (
+            <div className="mt-4">
+              <div className="bg-gray-700 rounded-lg p-4 max-w-4xl mx-auto">
+                <h3 className="text-lg font-bold text-center mb-3 text-yellow-400">🔄 Vote Shifts</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  {Object.entries(switchCounts).map(([transition, count]) => {
+                    const [prevTeamId, currTeamId] = transition.split('->');
+                    const prevTeam = teams.find(t => t.id === prevTeamId);
+                    const currTeam = teams.find(t => t.id === currTeamId);
+                    return (
+                      <div key={transition} className="bg-gray-800 rounded p-3 text-center">
+                        <div className="text-sm">
+                          <span className="font-bold" style={{ color: prevTeam?.color }}>{prevTeam?.name}</span>
+                          <span className="mx-2 text-gray-400">→</span>
+                          <span className="font-bold" style={{ color: currTeam?.color }}>{currTeam?.name}</span>
+                        </div>
+                        <div className="text-2xl font-bold text-white mt-1">{count}</div>
+                        <div className="text-xs text-gray-400">{count === 1 ? 'vote' : 'votes'}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Main Content */}

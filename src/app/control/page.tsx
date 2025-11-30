@@ -185,6 +185,12 @@ export default function ControlPage() {
   const handleUpdateGameState = async (updates: Partial<GameState>) => {
     setLoading(true);
     try {
+      // If opening audience window, increment voting round
+      if (updates.audienceWindow === true) {
+        const currentVotingRound = gameState?.votingRound || 1;
+        updates.votingRound = currentVotingRound + 1;
+      }
+
       await gameStateManager.updateGameState(updates);
 
       // Play Big X sound when toggling
@@ -759,7 +765,7 @@ export default function ControlPage() {
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="font-bold" style={{ color: team.color }}>{team.name}</h3>
                     <span className="text-sm text-gray-600">
-                      Dugout: {team.dugoutCount + (audienceMembers.filter(m => m.team === team.id).length)}
+                      Dugout: {audienceMembers.filter(m => m.team === team.id).length}
                     </span>
                   </div>
                   <div className="text-xl font-bold mb-2">₹{team.score.toLocaleString()}</div>
@@ -1041,8 +1047,6 @@ export default function ControlPage() {
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       {teams.map((team) => {
-                        const strikes = gameState?.round1Strikes?.[team.id] || 0;
-                        const isOut = strikes >= 2;
                         const isCurrentGuessing = gameState?.round1CurrentGuessingTeam === team.id;
                         return (
                           <div key={team.id} className="p-3 rounded-lg border border-gray-200">
@@ -1052,9 +1056,6 @@ export default function ControlPage() {
                               </span>
                               {isCurrentGuessing && (
                                 <span className="text-xs font-bold text-blue-600">CURRENT TURN</span>
-                              )}
-                              {gameState?.currentRound === 'round1' && !isCurrentGuessing && isOut && (
-                                <span className="text-xs font-bold text-red-500">OUT</span>
                               )}
                             </div>
                             <div className="space-y-2 ">
@@ -1074,7 +1075,7 @@ export default function ControlPage() {
                               />
                               <button
                                 onClick={() => handleSelectRound1GuessingTeam(team.id as 'red' | 'green' | 'blue')}
-                                disabled={loading || (gameState?.currentRound === 'round1' && (isOut || isCurrentGuessing))}
+                                disabled={loading || isCurrentGuessing}
                                 className={`p-2 w-full rounded text-sm font-medium ${isCurrentGuessing
                                   ? 'bg-blue-600 text-white'
                                   : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -1148,20 +1149,13 @@ export default function ControlPage() {
                     </div>
 
                     {gameState?.currentRound === 'round1' && (
-                      <div className="flex flex-col md:flex-row md:space-x-3 space-y-2 md:space-y-0 pt-2">
+                      <div className="pt-2">
                         <button
                           onClick={handleEndRound1}
-                          className="flex-1 p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
+                          className="w-full p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
                           disabled={loading}
                         >
                           END ROUND 1
-                        </button>
-                        <button
-                          onClick={handleResetRound1Strikes}
-                          className="p-3 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600"
-                          disabled={loading}
-                        >
-                          Reset Strikes
                         </button>
                       </div>
                     )}
