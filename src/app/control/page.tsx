@@ -1502,6 +1502,17 @@ export default function ControlPage() {
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
                   </label>
                 </div>
+
+                <button
+                  onClick={() => {
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                    gameStateManager.downloadAudienceCSV(audienceMembers, `audience-votes-${timestamp}.csv`);
+                  }}
+                  className="w-full p-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700"
+                  disabled={loading || audienceMembers.length === 0}
+                >
+                  📥 Download Votes CSV ({audienceMembers.length})
+                </button>
               </div>
             </div>
 

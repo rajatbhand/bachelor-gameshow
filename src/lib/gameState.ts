@@ -328,7 +328,7 @@ export class GameStateManager {
 
             // If this is the 7th reveal (6 already revealed), enforce 6000
             if (currentRevealedCount === 6) {
-              finalValue = 6000;
+              finalValue = 600;
               console.log('Round 3: Last answer revealed - enforcing value of 6000');
             }
           }
@@ -446,6 +446,51 @@ export class GameStateManager {
     });
 
     return members;
+  }
+
+  // Export audience members to CSV
+  exportAudienceToCSV(members: AudienceMember[]): string {
+    // CSV header
+    const headers = ['Name', 'Phone', 'UPI ID', 'Team', 'Voting Round', 'Previous Team', 'Submitted At', 'Updated At'];
+
+    // Convert members to CSV rows
+    const rows = members.map(member => {
+      const submittedDate = member.submittedAt
+        ? new Date(member.submittedAt as any).toLocaleString('en-IN')
+        : '';
+      const updatedDate = member.updatedAt
+        ? new Date(member.updatedAt as any).toLocaleString('en-IN')
+        : '';
+
+      return [
+        member.name,
+        member.phone,
+        member.upiId,
+        member.team.toUpperCase(),
+        member.votingRound.toString(),
+        member.previousTeam ? member.previousTeam.toUpperCase() : 'NONE',
+        submittedDate,
+        updatedDate
+      ].map(field => `"${field}"`).join(',');
+    });
+
+    // Combine header and rows
+    return [headers.join(','), ...rows].join('\n');
+  }
+
+  // Download audience data as CSV file
+  downloadAudienceCSV(members: AudienceMember[], filename: string = 'audience-votes.csv'): void {
+    const csv = this.exportAudienceToCSV(members);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   // Get audience voting results and update team dugout counts
