@@ -33,6 +33,8 @@ export interface GameState {
   lastUpdated: unknown;
   // Voting round tracking
   votingRound: number; // Track which voting round we're in (increments each time voting opens)
+  // Episode information
+  episodeInfo: string | null; // Operator-provided episode information shown to audience
   // Timer state (used by Round 2)
   timerActive: boolean;
   timerStartTime: number | null;
@@ -83,10 +85,18 @@ export interface Answer {
 }
 
 export interface AudienceMember {
-  id: string; // Using UPI ID as ID for tracking
+  id: string; // Firestore document ID (using deviceId for consistency)
+  // Layer 1: Device Fingerprint
+  deviceId: string; // Unique device identifier stored in localStorage
+  // Layer 2: Contact Information
   name: string;
   phone: string; // Phone number for contact
-  upiId: string; // UPI ID used as unique identifier
+  upiId: string; // UPI ID for payment
+  // Layer 3: Firebase Authentication
+  authUid: string; // Firebase Auth UID
+  authEmail: string | null; // Email from auth provider (if available)
+  authProvider: 'google' | 'email' | 'unknown'; // Which auth method was used
+  // Voting information
   team: 'red' | 'green' | 'blue';
   submittedAt: unknown;
   votingRound: number; // Track which round this vote was cast in
@@ -127,6 +137,8 @@ export class GameStateManager {
         lastUpdated: serverTimestamp(),
         // Voting round tracking
         votingRound: 1,
+        // Episode information
+        episodeInfo: null,
         // Timer state
         timerActive: false,
         timerStartTime: null,
@@ -328,7 +340,7 @@ export class GameStateManager {
 
             // If this is the 7th reveal (6 already revealed), enforce 6000
             if (currentRevealedCount === 6) {
-              finalValue = 600;
+              finalValue = 6000;
               console.log('Round 3: Last answer revealed - enforcing value of 6000');
             }
           }
@@ -392,45 +404,165 @@ export class GameStateManager {
     }
   }
 
-  // Submit audience member - now with UPI ID-based tracking and vote change detection
+  // Submit audience member with 3-layer duplicate prevention
   async submitAudienceMember(member: Omit<AudienceMember, 'id' | 'submittedAt' | 'votingRound' | 'previousTeam' | 'updatedAt'>): Promise<void> {
-    // Use UPI ID as document ID for tracking across rounds
-    const upiId = member.upiId.trim().toLowerCase(); // Normalize UPI ID
-    const memberDocRef = doc(db, 'audience', upiId);
-
-    // Check if this UPI ID has voted before
-    const existingDoc = await getDoc(memberDocRef);
-
-    // Get current voting round (we'll increment each time voting opens)
+    // Get current voting round
     const gameStateRef = doc(db, 'gameState', 'current');
     const gameStateDoc = await getDoc(gameStateRef);
     const currentRound = gameStateDoc.exists() ? (gameStateDoc.data().votingRound || 1) : 1;
 
-    if (existingDoc.exists()) {
-      // Voter exists - this is a vote change
-      const existingData = existingDoc.data() as AudienceMember;
-      const previousTeam = existingData.team;
+    // Normalize identifiers for consistent checking
+    const normalizedPhone = member.phone.trim().toLowerCase();
+    const normalizedUpi = member.upiId.trim().toLowerCase();
+    const normalizedDeviceId = member.deviceId.trim();
+    const normalizedAuthUid = member.authUid.trim();
 
-      // Update the vote with new team and track the change
-      await updateDoc(memberDocRef, {
-        name: member.name,
-        phone: member.phone,
-        team: member.team,
-        previousTeam: previousTeam !== member.team ? previousTeam : null, // Only set if actually changed
-        votingRound: currentRound,
-        updatedAt: serverTimestamp()
-      });
-    } else {
-      // New voter
-      await setDoc(memberDocRef, {
-        ...member,
-        upiId: upiId, // Store normalized UPI ID
-        submittedAt: serverTimestamp(),
-        votingRound: currentRound,
-        previousTeam: null, // First time voting
-        updatedAt: serverTimestamp()
-      });
+    // LAYER 1: Check if device ID has already voted
+    const audienceRef = collection(db, 'audience');
+    const deviceQuery = query(audienceRef, where('deviceId', '==', normalizedDeviceId));
+    const deviceSnapshot = await getDocs(deviceQuery);
+
+    if (!deviceSnapshot.empty) {
+      const existingVote = deviceSnapshot.docs[0].data() as AudienceMember;
+
+      // If voting round is the same, this is a vote update
+      if (existingVote.votingRound === currentRound) {
+        const previousTeam = existingVote.team;
+        await updateDoc(deviceSnapshot.docs[0].ref, {
+          name: member.name,
+          phone: normalizedPhone,
+          upiId: normalizedUpi,
+          authUid: normalizedAuthUid,
+          authEmail: member.authEmail,
+          authProvider: member.authProvider,
+          team: member.team,
+          previousTeam: previousTeam !== member.team ? previousTeam : null,
+          votingRound: currentRound,
+          updatedAt: serverTimestamp()
+        });
+        return;
+      } else if (currentRound > 1) {
+        // Round 2+: Allow existing voters to vote again
+        const previousTeam = existingVote.team;
+        await updateDoc(deviceSnapshot.docs[0].ref, {
+          name: member.name,
+          phone: normalizedPhone,
+          upiId: normalizedUpi,
+          authUid: normalizedAuthUid,
+          authEmail: member.authEmail,
+          authProvider: member.authProvider,
+          team: member.team,
+          previousTeam: previousTeam,
+          votingRound: currentRound,
+          updatedAt: serverTimestamp()
+        });
+        return;
+      }
     }
+
+    // LAYER 2: Check if phone+UPI combination has already voted
+    const phoneUpiQuery = query(
+      audienceRef,
+      where('phone', '==', normalizedPhone),
+      where('upiId', '==', normalizedUpi)
+    );
+    const phoneUpiSnapshot = await getDocs(phoneUpiQuery);
+
+    if (!phoneUpiSnapshot.empty) {
+      const existingVote = phoneUpiSnapshot.docs[0].data() as AudienceMember;
+
+      if (existingVote.votingRound === currentRound) {
+        const previousTeam = existingVote.team;
+        await updateDoc(phoneUpiSnapshot.docs[0].ref, {
+          deviceId: normalizedDeviceId,
+          authUid: normalizedAuthUid,
+          authEmail: member.authEmail,
+          authProvider: member.authProvider,
+          name: member.name,
+          team: member.team,
+          previousTeam: previousTeam !== member.team ? previousTeam : null,
+          votingRound: currentRound,
+          updatedAt: serverTimestamp()
+        });
+        return;
+      } else if (currentRound > 1) {
+        const previousTeam = existingVote.team;
+        await updateDoc(phoneUpiSnapshot.docs[0].ref, {
+          deviceId: normalizedDeviceId,
+          authUid: normalizedAuthUid,
+          authEmail: member.authEmail,
+          authProvider: member.authProvider,
+          name: member.name,
+          team: member.team,
+          previousTeam: previousTeam,
+          votingRound: currentRound,
+          updatedAt: serverTimestamp()
+        });
+        return;
+      }
+    }
+
+    // LAYER 3: Check if auth UID has already voted
+    const authQuery = query(audienceRef, where('authUid', '==', normalizedAuthUid));
+    const authSnapshot = await getDocs(authQuery);
+
+    if (!authSnapshot.empty) {
+      const existingVote = authSnapshot.docs[0].data() as AudienceMember;
+
+      if (existingVote.votingRound === currentRound) {
+        const previousTeam = existingVote.team;
+        await updateDoc(authSnapshot.docs[0].ref, {
+          deviceId: normalizedDeviceId,
+          name: member.name,
+          phone: normalizedPhone,
+          upiId: normalizedUpi,
+          authEmail: member.authEmail,
+          authProvider: member.authProvider,
+          team: member.team,
+          previousTeam: previousTeam !== member.team ? previousTeam : null,
+          votingRound: currentRound,
+          updatedAt: serverTimestamp()
+        });
+        return;
+      } else if (currentRound > 1) {
+        const previousTeam = existingVote.team;
+        await updateDoc(authSnapshot.docs[0].ref, {
+          deviceId: normalizedDeviceId,
+          name: member.name,
+          phone: normalizedPhone,
+          upiId: normalizedUpi,
+          authEmail: member.authEmail,
+          authProvider: member.authProvider,
+          team: member.team,
+          previousTeam: previousTeam,
+          votingRound: currentRound,
+          updatedAt: serverTimestamp()
+        });
+        return;
+      }
+    }
+
+    // NEW VOTER - Only allowed in Round 1
+    if (currentRound > 1) {
+      throw new Error('New voters are only allowed in the first voting round.');
+    }
+
+    // Create new vote using deviceId as document ID
+    const memberDocRef = doc(db, 'audience', normalizedDeviceId);
+    await setDoc(memberDocRef, {
+      deviceId: normalizedDeviceId,
+      name: member.name,
+      phone: normalizedPhone,
+      upiId: normalizedUpi,
+      authUid: normalizedAuthUid,
+      authEmail: member.authEmail,
+      authProvider: member.authProvider,
+      team: member.team,
+      submittedAt: serverTimestamp(),
+      votingRound: currentRound,
+      previousTeam: null,
+      updatedAt: serverTimestamp()
+    });
   }
 
 
@@ -627,6 +759,8 @@ export class GameStateManager {
       questionRevealed: false,
       revealMode: 'one-by-one',
       guessMode: false,
+      // Voting round tracking - reset to 1
+      votingRound: 1,
       // Timer state
       timerActive: false,
       timerStartTime: null,

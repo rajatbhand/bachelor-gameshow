@@ -3,7 +3,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
 import React from 'react';
+import { Bebas_Neue } from 'next/font/google';
 // import { doc, getDoc } from 'firebase/firestore'; // Not needed as we use manager
+
+const bebas = Bebas_Neue({
+  weight: '400',
+  subsets: ['latin'],
+  display: 'swap',
+});
 
 // Custom hook to store the previous value of a state or prop
 function usePrevious<T>(value: T): T | undefined {
@@ -217,7 +224,7 @@ export default function DisplayPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className={`min-h-screen bg-gray-900 text-white ${bebas.className}`}>
       {/* Header with Round and Teams */}
       <div className="bg-gray-800 p-4">
         <div className="flex justify-between items-center">
@@ -233,7 +240,7 @@ export default function DisplayPage() {
                       backgroundColor: teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.color || '#6b21a8'
                     }}
                   >
-                    <div className="text-white text-xl font-black tracking-normal">
+                    <div className="text-white text-4xl font-bold tracking-wide">
                       🎤 {teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.name.toUpperCase()} IS PLAYING
                     </div>
                   </div>
@@ -245,18 +252,13 @@ export default function DisplayPage() {
             {teams.map((team) => {
               return (
                 <div key={team.id} className="text-center">
-                  <div
-                    className="text-lg font-bold"
-                    style={{ color: team.color }}
-                  >
-                    {team.name}
+                  <div className="flex items-center justify-between">
+                    <div className="text-3xl font-bold tracking-wide" style={{ color: team.color }}>{team.name}</div>
+                    <div className="text-3xl font-bold tracking-wide">₹{team.score.toLocaleString()}</div>
                   </div>
-                  <div className="text-3xl font-bold">₹{team.score.toLocaleString()}</div>
-                  <div className="text-sm text-gray-400">
-                    Dugout: {team.dugoutCount}
-                    {audienceMembers.length > 0 && (
-                      <span className="text-yellow-400"> ({audienceMembers.filter(m => m.team === team.id).length} votes)</span>
-                    )}
+                  <div className="flex items-center justify-between">
+                    <div className="text-2xl tracking-wide text-gray-400">Dugout:</div>
+                    <div className="text-2xl font-bold tracking-wide ml-12">{team.dugoutCount}</div>
                   </div>
                 </div>
               );
@@ -264,15 +266,7 @@ export default function DisplayPage() {
           </div>
         </div>
 
-        {/* Audience Voting Status */}
-        {gameState?.audienceWindow && (
-          <div className="mt-4 text-center">
-            <div className="bg-green-600 text-white px-4 py-2 rounded-lg inline-block">
-              <span className="font-bold">🗳️ AUDIENCE VOTING OPEN</span>
-              <span className="ml-2">({audienceMembers.length} submissions)</span>
-            </div>
-          </div>
-        )}
+
 
         {/* Team Switchers Display - Only show when voting is open */}
         {gameState?.audienceWindow && teamSwitchers.length > 0 && (() => {
@@ -286,21 +280,40 @@ export default function DisplayPage() {
           return (
             <div className="mt-4">
               <div className="bg-gray-700 rounded-lg p-4 max-w-4xl mx-auto">
-                <h3 className="text-lg font-bold text-center mb-3 text-yellow-400">🔄 Vote Shifts</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                {/* Audience Voting Status */}
+                {gameState?.audienceWindow && (
+                  <div className="text-center flex items-center justify-between mb-2">
+                    <h3 className="text-3xl font-bold text-center text-yellow-400 tracking-wide">🔄 VOTE SHIFTS</h3>
+                    <div className="text-white flex items-center gap-2">
+                      <div className="w-4 h-4 animate-pulse rounded-full bg-green-600"></div>
+                      <div className="text-3xl tracking-wide font-bold"> AUDIENCE VOTING OPEN</div>
+                      <div className="tracking-wide text-3xl">({audienceMembers.length} submissions)</div>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {Object.entries(switchCounts).map(([transition, count]) => {
                     const [prevTeamId, currTeamId] = transition.split('->');
                     const prevTeam = teams.find(t => t.id === prevTeamId);
                     const currTeam = teams.find(t => t.id === currTeamId);
+
+                    const teamColors: { [key: string]: string } = {
+                      red: '#ef4444',
+                      green: '#22c55e',
+                      blue: '#3b82f6'
+                    };
+
                     return (
                       <div key={transition} className="bg-gray-800 rounded p-3 text-center">
-                        <div className="text-sm">
-                          <span className="font-bold" style={{ color: prevTeam?.color }}>{prevTeam?.name}</span>
-                          <span className="mx-2 text-gray-400">→</span>
-                          <span className="font-bold" style={{ color: currTeam?.color }}>{currTeam?.name}</span>
+                        <div className="text-2xl font-semibold tracking-wide flex items-center justify-center gap-2">
+                          <div style={{ color: teamColors[prevTeamId] || prevTeam?.color }}>{prevTeam?.name.toUpperCase()}</div>
+                          <div className="text-white">➡️</div>
+                          <div style={{ color: teamColors[currTeamId] || currTeam?.color }}>{currTeam?.name.toUpperCase()}</div>
                         </div>
-                        <div className="text-2xl font-bold text-white mt-1">{count}</div>
-                        <div className="text-xs text-gray-400">{count === 1 ? 'vote' : 'votes'}</div>
+                        <div className="flex items-center justify-center gap-2 mt-2">
+                          <div className="text-2xl text-gray-400 tracking-wide">{count === 1 ? 'VOTE' : 'VOTES'}</div>
+                          <div className="text-2xl font-bold text-white tracking-wide">{count}</div>
+                        </div>
                       </div>
                     );
                   })}
@@ -431,19 +444,79 @@ export default function DisplayPage() {
 
       {/* Scorecard Overlay */}
       {gameState?.scorecardOverlay && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-8 max-w-4xl w-full mx-4">
-            <h2 className="text-4xl font-bold text-center mb-8">FINAL SCORES</h2>
-            <div className="grid grid-cols-3 gap-8">
-              {teams.map((team) => (
-                <div key={team.id} className="text-center">
-                  <div className="text-3xl font-bold mb-2" style={{ color: team.color }}>
-                    {team.name}
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-lg p-8 max-w-6xl w-full mx-4 max-h-screen overflow-y-auto">
+            <h2 className="text-5xl font-bold text-center mb-8 text-white tracking-wide">SCOREBOARD</h2>
+
+            {/* Team Scores, Dugout, and Vote Shifts */}
+            <div className="grid grid-cols-3 gap-8 mb-8">
+              {teams.map((team) => {
+                // Calculate vote shifts for this team
+                const shiftsToThisTeam = teamSwitchers.filter(s => s.currentTeam === team.id && s.previousTeam !== team.id);
+                const shiftsFromThisTeam = teamSwitchers.filter(s => s.previousTeam === team.id && s.currentTeam !== team.id);
+
+                // Group shifts by source/destination team
+                const shiftsIn: { [key: string]: number } = {};
+                const shiftsOut: { [key: string]: number } = {};
+
+                shiftsToThisTeam.forEach(s => {
+                  shiftsIn[s.previousTeam] = (shiftsIn[s.previousTeam] || 0) + 1;
+                });
+
+                shiftsFromThisTeam.forEach(s => {
+                  shiftsOut[s.currentTeam] = (shiftsOut[s.currentTeam] || 0) + 1;
+                });
+
+                const teamColors: { [key: string]: string } = {
+                  red: '#ef4444',
+                  green: '#22c55e',
+                  blue: '#3b82f6'
+                };
+
+                return (
+                  <div key={team.id} className="text-center bg-gray-800 rounded-lg p-6">
+                    <div className='flex items-center justify-between'>
+                      <div className="text-4xl font-bold mb-2 tracking-wide" style={{ color: team.color }}>
+                        {team.name.toUpperCase()}
+                      </div>
+                      <div className="text-5xl font-bold text-white mb-4 tracking-wider">₹{team.score.toLocaleString()}</div>
+                    </div>
+                    {/* Dugout Count */}
+                    <div className="bg-gray-700 rounded-lg p-3 mb-4 flex items-end justify-between">
+                      <div className="text-3xl text-gray-400">DUGOUT</div>
+                      <div className="text-3xl font-bold tracking-wide" style={{ color: team.color }}>
+                        {team.dugoutCount} {team.dugoutCount === 1 ? 'vote' : 'votes'}
+                      </div>
+                    </div>
+
+                    {/* Vote Shifts for this team */}
+                    {Object.keys(shiftsIn).length > 0 && (
+                      <div className="bg-gray-700 rounded-lg p-3 space-y-2">
+                        <div className="text-3xl text-gray-400">VOTE SHIFTS</div>
+
+                        {/* Shifts TO this team only (to avoid duplicates) */}
+                        {Object.entries(shiftsIn).map(([fromTeam, count]) => (
+                          <div key={`in-${fromTeam}`} className="text-3xl font-semibold tracking-wide flex items-center justify-center gap-2">
+                            <div style={{ color: teamColors[fromTeam] }}>{fromTeam.toUpperCase()}</div>
+                            <div className="text-white">➡️</div>
+                            <div style={{ color: team.color }}>{team.name.toUpperCase()}</div>
+                            <div className="text-white">({count})</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-6xl font-bold">₹{team.score.toLocaleString()}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+
+            {/* Summary Stats 
+            <div className="mt-6 text-center text-gray-400 text-sm">
+              <p>Total Votes: {audienceMembers.length}</p>
+              {teamSwitchers.length > 0 && (
+                <p className="mt-1">Vote Shifts: {teamSwitchers.length}</p>
+              )}
+            </div>*/}
           </div>
         </div>
       )}

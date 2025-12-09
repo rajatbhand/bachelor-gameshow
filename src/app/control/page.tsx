@@ -43,6 +43,7 @@ export default function ControlPage() {
   });
   const [round2Selection, setRound2Selection] = useState<string[]>([]);
   const [round2ManualScores, setRound2ManualScores] = useState<{ [key: string]: number }>({});
+  const [episodeInfo, setEpisodeInfo] = useState('');
 
   // Audio refs
   const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -185,12 +186,6 @@ export default function ControlPage() {
   const handleUpdateGameState = async (updates: Partial<GameState>) => {
     setLoading(true);
     try {
-      // If opening audience window, increment voting round
-      if (updates.audienceWindow === true) {
-        const currentVotingRound = gameState?.votingRound || 1;
-        updates.votingRound = currentVotingRound + 1;
-      }
-
       await gameStateManager.updateGameState(updates);
 
       // Play Big X sound when toggling
@@ -198,8 +193,11 @@ export default function ControlPage() {
         await playBigXSound();
       }
 
-      // If closing audience window, update voting results
+      // If closing audience window, increment voting round for next opening
       if (updates.audienceWindow === false) {
+        const currentVotingRound = gameState?.votingRound || 1;
+        await gameStateManager.updateGameState({ votingRound: currentVotingRound + 1 });
+
         await gameStateManager.updateAudienceVotingResults();
         // Reload audience members
         const members = await gameStateManager.getAudienceMembers();
@@ -769,7 +767,7 @@ export default function ControlPage() {
                     </span>
                   </div>
                   <div className="text-xl font-bold mb-2">₹{team.score.toLocaleString()}</div>
-                  <div className="flex space-x-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => handleScoreChange(team.id, 100)}
                       className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
@@ -783,6 +781,20 @@ export default function ControlPage() {
                       disabled={loading}
                     >
                       -100
+                    </button>
+                    <button
+                      onClick={() => handleScoreChange(team.id, 500)}
+                      className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
+                      disabled={loading}
+                    >
+                      +500
+                    </button>
+                    <button
+                      onClick={() => handleScoreChange(team.id, -500)}
+                      className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
+                      disabled={loading}
+                    >
+                      -500
                     </button>
                   </div>
                 </div>
@@ -1501,6 +1513,32 @@ export default function ControlPage() {
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
                   </label>
+                </div>
+
+                {/* Episode Information */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Episode Information
+                  </label>
+                  <input
+                    type="text"
+                    value={episodeInfo}
+                    onChange={(e) => setEpisodeInfo(e.target.value)}
+                    placeholder="e.g., Episode 1 FT - Finals"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                  />
+                  <button
+                    onClick={() => handleUpdateGameState({ episodeInfo: episodeInfo || null })}
+                    className="w-full p-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700"
+                    disabled={loading}
+                  >
+                    Save Episode Info
+                  </button>
+                  {gameState?.episodeInfo && (
+                    <div className="text-xs text-gray-600 p-2 bg-gray-50 rounded">
+                      Current: {gameState.episodeInfo}
+                    </div>
+                  )}
                 </div>
 
                 <button
