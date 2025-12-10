@@ -19,6 +19,8 @@
     "deploy:prod": "npm run export:prod && firebase deploy -P production --only hosting"
   },
   "dependencies": {
+    "@types/canvas-confetti": "^1.9.0",
+    "canvas-confetti": "^1.9.4",
     "firebase": "^10.7.1",
     "next": "14.2.31",
     "papaparse": "^5.5.3",

@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
+import { useState, useEffect, useRef } from 'react';
+import { gameStateManager } from '@/lib/gameState';
+import type { GameState, Question, Team } from '@/lib/gameState';
 import React from 'react';
 import { Bebas_Neue } from 'next/font/google';
+import confetti from 'canvas-confetti';
 // import { doc, getDoc } from 'firebase/firestore'; // Not needed as we use manager
 
 const bebas = Bebas_Neue({
@@ -191,6 +193,44 @@ export default function DisplayPage() {
     };
   }, []);
 
+  // Confetti effect when end show screen is displayed
+  useEffect(() => {
+    if (gameState?.showEndScreen) {
+      // Fire confetti celebration
+      const duration = 5000; // 5 seconds
+      const animationEnd = Date.now() + duration;
+      const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
+
+      const randomInRange = (min: number, max: number) => {
+        return Math.random() * (max - min) + min;
+      };
+
+      const interval: NodeJS.Timeout = setInterval(() => {
+        const timeLeft = animationEnd - Date.now();
+
+        if (timeLeft <= 0) {
+          return clearInterval(interval);
+        }
+
+        const particleCount = 50 * (timeLeft / duration);
+
+        // Fire confetti from multiple positions
+        confetti({
+          ...defaults,
+          particleCount,
+          origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }
+        });
+        confetti({
+          ...defaults,
+          particleCount,
+          origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }
+        });
+      }, 250);
+
+      return () => clearInterval(interval);
+    }
+  }, [gameState?.showEndScreen]);
+
   // Show score animation when individual team scores change
   const prevScoresRef = React.useRef<Record<string, number>>({});
   useEffect(() => {
@@ -335,7 +375,7 @@ export default function DisplayPage() {
               {round2Options.map((q) => (
                 <div key={q.id} className="bg-indigo-900/50 border-4 border-indigo-500 rounded-xl p-8 flex items-center justify-center min-h-[300px] transform hover:scale-105 transition-transform duration-300 shadow-2xl">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-white leading-relaxed">{q.text}</div>
+                    <div className="text-2xl font-bold text-white leading-relaxed">{q.displayText || q.text}</div>
                   </div>
                 </div>
               ))}
@@ -385,7 +425,7 @@ export default function DisplayPage() {
 
               {/* Answers Grid */}
               {(gameState?.questionRevealed || (gameState?.revealMode === 'all-at-once' && gameState?.guessMode)) && (
-                <div className="grid grid-cols-3 gap-4">
+                <div className={`grid grid-cols-3 gap-4 ${currentQuestion.answerCount === 7 ? '[&>*:last-child]:col-start-2' : ''}`}>
                   {currentQuestion.answers.slice(0, currentQuestion.answerCount).map((answer, index) => (
                     <div
                       key={answer.id}
@@ -446,7 +486,11 @@ export default function DisplayPage() {
       {gameState?.scorecardOverlay && (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-900 rounded-lg p-8 max-w-6xl w-full mx-4 max-h-screen overflow-y-auto">
-            <h2 className="text-5xl font-bold text-center mb-8 text-white tracking-wide">SCOREBOARD</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-5xl font-bold text-center mb-8 text-white tracking-wide">SCOREBOARD</h2>
+              <p className="text-3xl font-bold text-white tracking-wide">Total Votes: {audienceMembers.length}</p>
+            </div>
+
 
             {/* Team Scores, Dugout, and Vote Shifts */}
             <div className="grid grid-cols-3 gap-8 mb-8">
@@ -475,48 +519,88 @@ export default function DisplayPage() {
 
                 return (
                   <div key={team.id} className="text-center bg-gray-800 rounded-lg p-6">
-                    <div className='flex items-center justify-between'>
-                      <div className="text-4xl font-bold mb-2 tracking-wide" style={{ color: team.color }}>
+                    <div className='flex items-end justify-between mb-4'>
+                      <div className="text-4xl font-bold tracking-wide" style={{ color: team.color }}>
                         {team.name.toUpperCase()}
                       </div>
-                      <div className="text-5xl font-bold text-white mb-4 tracking-wider">₹{team.score.toLocaleString()}</div>
+                      <div className="text-5xl font-bold text-white tracking-wider">₹{team.score.toLocaleString()}</div>
                     </div>
                     {/* Dugout Count */}
-                    <div className="bg-gray-700 rounded-lg p-3 mb-4 flex items-end justify-between">
-                      <div className="text-3xl text-gray-400">DUGOUT</div>
+                    <div className="bg-gray-700 rounded-lg p-3 flex items-end justify-between">
+                      <div className="text-3xl text-white">DUGOUT</div>
+                      <div className="text-3xl font-bold tracking-wide" style={{ color: team.color }}>
+                        {team.dugoutCount} {team.dugoutCount === 1 ? 'vote' : 'votes'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vote Shift Overlay */}
+      {gameState?.voteShiftOverlay && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-lg p-8 max-w-6xl w-full mx-4 max-h-screen overflow-y-auto">
+            <h2 className="text-6xl font-bold text-center mb-8 text-yellow-400 tracking-wide">🔄 VOTE SHIFTS</h2>
+
+            {/* Team Vote Shifts */}
+            <div className="grid grid-cols-3 gap-8 mb-8">
+              {teams.map((team) => {
+                // Calculate vote shifts for this team
+                const shiftsToThisTeam = teamSwitchers.filter(s => s.currentTeam === team.id && s.previousTeam !== team.id);
+
+                // Group shifts by source team
+                const shiftsIn: { [key: string]: number } = {};
+
+                shiftsToThisTeam.forEach(s => {
+                  shiftsIn[s.previousTeam] = (shiftsIn[s.previousTeam] || 0) + 1;
+                });
+
+                const teamColors: { [key: string]: string } = {
+                  red: '#ef4444',
+                  green: '#22c55e',
+                  blue: '#3b82f6'
+                };
+
+                return (
+                  <div key={team.id} className="text-center bg-gray-800 rounded-lg p-6">
+                    <div className="text-5xl font-bold mb-4 tracking-wide" style={{ color: team.color }}>
+                      {team.name.toUpperCase()}
+                    </div>
+
+                    {/* Dugout Count */}
+                    <div className="bg-gray-700 rounded-lg p-3 flex items-end justify-between mb-4">
+                      <div className="text-3xl text-white">DUGOUT</div>
                       <div className="text-3xl font-bold tracking-wide" style={{ color: team.color }}>
                         {team.dugoutCount} {team.dugoutCount === 1 ? 'vote' : 'votes'}
                       </div>
                     </div>
 
                     {/* Vote Shifts for this team */}
-                    {Object.keys(shiftsIn).length > 0 && (
-                      <div className="bg-gray-700 rounded-lg p-3 space-y-2">
-                        <div className="text-3xl text-gray-400">VOTE SHIFTS</div>
+                    {Object.keys(shiftsIn).length > 0 ? (
+                      <div className="bg-gray-700 rounded-lg p-4 space-y-3">
 
-                        {/* Shifts TO this team only (to avoid duplicates) */}
                         {Object.entries(shiftsIn).map(([fromTeam, count]) => (
                           <div key={`in-${fromTeam}`} className="text-3xl font-semibold tracking-wide flex items-center justify-center gap-2">
                             <div style={{ color: teamColors[fromTeam] }}>{fromTeam.toUpperCase()}</div>
                             <div className="text-white">➡️</div>
                             <div style={{ color: team.color }}>{team.name.toUpperCase()}</div>
-                            <div className="text-white">({count})</div>
+                            <div className="text-white ml-2">({count})</div>
                           </div>
                         ))}
+                      </div>
+                    ) : (
+                      <div className="bg-gray-700 rounded-lg p-4">
+                        <div className="text-2xl text-gray-400 tracking-wide">No vote shifts</div>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
-
-            {/* Summary Stats 
-            <div className="mt-6 text-center text-gray-400 text-sm">
-              <p>Total Votes: {audienceMembers.length}</p>
-              {teamSwitchers.length > 0 && (
-                <p className="mt-1">Vote Shifts: {teamSwitchers.length}</p>
-              )}
-            </div>*/}
           </div>
         </div>
       )}
@@ -559,6 +643,61 @@ export default function DisplayPage() {
           </div>
         </div>
       )}
+
+      {/* End Show Screen */}
+      {gameState?.showEndScreen && (() => {
+        // Calculate winning team
+        const winningTeam = teams.reduce((prev, current) =>
+          (current.score > prev.score) ? current : prev
+          , teams[0]);
+
+        const divisibleAmount = winningTeam.dugoutCount > 0
+          ? Math.floor(winningTeam.score / winningTeam.dugoutCount)
+          : 0;
+
+        return (
+          <div className="fixed inset-0 bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center z-50 p-8">
+            <div className="text-center max-w-4xl">
+              <div className="text-7xl font-black text-white mb-8 animate-pulse">
+                🎉 THANK YOU FOR PLAYING! 🎉
+              </div>
+
+              <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-3xl p-12 mb-8 border-4 border-white border-opacity-30">
+                <div className="text-5xl font-bold text-yellow-400 mb-6">
+                  🏆 WINNER 🏆
+                </div>
+
+                <div
+                  className="text-8xl font-black mb-8"
+                  style={{ color: winningTeam.color }}
+                >
+                  {winningTeam.name.toUpperCase()} TEAM
+                </div>
+
+                <div className="grid grid-cols-2 gap-8 text-white">
+                  <div className="bg-white bg-opacity-20 rounded-2xl p-6">
+                    <div className="text-3xl font-semibold mb-3">Total Players</div>
+                    <div className="text-6xl font-black" style={{ color: winningTeam.color }}>
+                      {winningTeam.dugoutCount}
+                    </div>
+                  </div>
+
+                  <div className="bg-white bg-opacity-20 rounded-2xl p-6">
+                    <div className="text-3xl font-semibold mb-3">Divisible Amount</div>
+                    <div className="text-6xl font-black text-green-400">
+                      ₹{divisibleAmount.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-5xl font-bold text-white animate-bounce">
+                Thank you for playing with us! ❤️
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -43,19 +43,24 @@ export default function AudiencePage() {
   const [authError, setAuthError] = useState('');
   const [isExistingVoter, setIsExistingVoter] = useState(false);
   const [existingVoterData, setExistingVoterData] = useState<{ name: string; phone: string; upiId: string } | null>(null);
-  const [previousVotingState, setPreviousVotingState] = useState(false);
+  const [previousVotingState, setPreviousVotingState] = useState<boolean | null>(null); // null = not yet initialized
+  const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
 
+  // Subscribe to real-time game state and teams
   useEffect(() => {
     const unsubscribeGameState = gameStateManager.subscribeToGameState((state) => {
-      // Auto-refresh when voting reopens (transitions from closed to open)
-      if (state.audienceWindow && !previousVotingState && submitted) {
-        setSubmitted(false);
-        setSubmittedTeam(null);
-        setFormData({ name: '', phone: '', upiId: '', team: '' });
+      // Only check for voting reopening if we have a previous state (not initial mount)
+      if (previousVotingState !== null) {
+        const votingJustOpened = previousVotingState === false && state.audienceWindow === true;
+
+        if (votingJustOpened) {
+          window.location.reload();
+          return; // Don't update state after reload
+        }
       }
 
-      // Track previous voting state
-      setPreviousVotingState(state.audienceWindow || false);
+      // Update previous state for next comparison
+      setPreviousVotingState(state.audienceWindow);
       setGameState(state);
     });
 
@@ -63,22 +68,28 @@ export default function AudiencePage() {
       setTeams(teamsData);
     });
 
+    // Subscribe to audience members for real-time vote counts
+    const unsubscribeAudience = gameStateManager.subscribeToAudienceMembers((members) => {
+      setAudienceMembers(members);
+    });
+
     return () => {
       unsubscribeGameState();
       unsubscribeTeams();
+      unsubscribeAudience();
     };
   }, [submitted, previousVotingState]);
 
-  // Check if user has voted before (existing voter) and if they've voted in current round
+  // Check if user has voted before (existing voter) - ONLY on initial mount and user/gameState changes
   useEffect(() => {
     const checkExistingVoter = async () => {
       if (!user || !gameState) return;
 
       const deviceId = getOrCreateDeviceId();
 
-      // Check database for existing voter data
-      const audienceMembers = await gameStateManager.getAudienceMembers();
-      const existingVote = audienceMembers.find(
+      // Fetch once on mount to check initial state - don't re-check on every audience update
+      const members = await gameStateManager.getAudienceMembers();
+      const existingVote = members.find(
         m => m.deviceId === deviceId || m.authUid === user.uid
       );
 
@@ -94,21 +105,12 @@ export default function AudiencePage() {
         if (existingVote.votingRound === gameState.votingRound) {
           setSubmitted(true);
           setSubmittedTeam(existingVote.team);
-        } else {
-          // Voted before but in a previous round - can vote again
-          setSubmitted(false);
-          setSubmittedTeam(null);
         }
-      } else {
-        setIsExistingVoter(false);
-        setExistingVoterData(null);
-        setSubmitted(false);
-        setSubmittedTeam(null);
       }
     };
 
     checkExistingVoter();
-  }, [user, gameState]);
+  }, [user, gameState?.votingRound]); // Only re-check when user changes or voting round changes
 
   const handleGoogleSignIn = async () => {
     try {
@@ -381,28 +383,33 @@ export default function AudiencePage() {
           <div className="mt-6 bg-gray-50 rounded-lg p-4">
             <h2 className="text-lg font-bold text-gray-900 mb-3 text-center">Current Standings</h2>
             <div className="space-y-2">
-              {teams.map((team) => (
-                <div key={team.id} className="flex justify-between items-center bg-white p-3 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-4 h-4 rounded-full"
-                      style={{ backgroundColor: team.color }}
-                    ></div>
-                    <div>
-                      <div className="font-bold text-sm" style={{ color: team.color }}>{team.name}</div>
-                      <div className="text-xs text-gray-500">{team.dugoutCount} votes</div>
+              {teams.map((team) => {
+                // Calculate vote count from real-time audience members data
+                const voteCount = audienceMembers.filter(m => m.team === team.id).length;
+
+                return (
+                  <div key={team.id} className="flex justify-between items-center bg-white p-3 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-4 h-4 rounded-full"
+                        style={{ backgroundColor: team.color }}
+                      ></div>
+                      <div>
+                        <div className="font-bold text-sm" style={{ color: team.color }}>{team.name}</div>
+                        <div className="text-xs text-gray-500">{voteCount} votes</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-gray-900">₹{team.score.toLocaleString()}</div>
+                      {voteCount > 0 && (
+                        <div className="text-xs text-green-600">
+                          ₹{Math.floor(team.score / voteCount)}/person
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-gray-900">₹{team.score.toLocaleString()}</div>
-                    {team.dugoutCount > 0 && (
-                      <div className="text-xs text-green-600">
-                        ₹{Math.floor(team.score / team.dugoutCount)}/person
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

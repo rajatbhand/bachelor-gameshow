@@ -302,6 +302,7 @@ export default function ControlPage() {
           for (const row of results.data) {
             const questionId = row.QuestionID;
             const questionText = row.QuestionText;
+            const displayText = row.DisplayText; // Optional teaser text for Round 2
             const answerCount = parseInt(row.AnswerCount) || 10;
 
             if (!questionId || !questionText) {
@@ -328,6 +329,7 @@ export default function ControlPage() {
             const question: Question = {
               id: questionId.trim(),
               text: questionText.trim(),
+              ...(displayText && displayText.trim() ? { displayText: displayText.trim() } : {}),
               answers,
               answerCount: answers.length // Use the actual number of parsed answers
             };
@@ -1501,6 +1503,21 @@ export default function ControlPage() {
                   </label>
                 </div>
 
+                {/* Vote Shift Overlay */}
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Vote Shift Overlay</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={gameState?.voteShiftOverlay || false}
+                      onChange={() => handleUpdateGameState({ voteShiftOverlay: !gameState?.voteShiftOverlay })}
+                      className="sr-only peer"
+                      disabled={loading}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
+                  </label>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Audience Voting</span>
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -1512,6 +1529,20 @@ export default function ControlPage() {
                       disabled={loading}
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">End Show Screen</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={gameState?.showEndScreen || false}
+                      onChange={() => handleUpdateGameState({ showEndScreen: !gameState?.showEndScreen })}
+                      className="sr-only peer"
+                      disabled={loading}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-600"></div>
                   </label>
                 </div>
 

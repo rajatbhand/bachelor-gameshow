@@ -25,6 +25,7 @@ export interface GameState {
   activeTeam: 'red' | 'green' | 'blue' | 'host' | null;
   bigX: boolean;
   scorecardOverlay: boolean;
+  voteShiftOverlay: boolean;
   audienceWindow: boolean;
   logoOnly: boolean;
   questionRevealed: boolean;
@@ -58,6 +59,8 @@ export interface GameState {
   round2Options?: string[]; // The three questions selected by operator for the round
   round2CurrentTeam?: 'red' | 'green' | 'blue' | null; // Which team is currently playing Round 2
   round2UsedQuestionIds?: string[]; // Track questions used across all teams
+  // End show state
+  showEndScreen: boolean; // Whether to show the end show thank you screen
 }
 
 export interface Team {
@@ -71,6 +74,7 @@ export interface Team {
 export interface Question {
   id: string;
   text: string;
+  displayText?: string; // Optional teaser text for Round 2 selection phase
   answers: Answer[];
   answerCount: number;
 }
@@ -129,6 +133,7 @@ export class GameStateManager {
         activeTeam: null,
         bigX: false,
         scorecardOverlay: false,
+        voteShiftOverlay: false,
         audienceWindow: false,
         logoOnly: true,
         questionRevealed: false,
@@ -150,7 +155,9 @@ export class GameStateManager {
           blue: 0
         },
         round1Active: false,
-        round1CurrentGuessingTeam: null
+        round1CurrentGuessingTeam: null,
+        // End show state
+        showEndScreen: false
       };
 
       await setDoc(gameStateRef, initialState);
@@ -753,6 +760,7 @@ export class GameStateManager {
       activeTeam: null,
       bigX: false,
       scorecardOverlay: false,
+      voteShiftOverlay: false,
       audienceWindow: false,
       round2BonusApplied: false,
       logoOnly: true,
@@ -772,7 +780,9 @@ export class GameStateManager {
         blue: 0
       },
       round1Active: false,
-      round1CurrentGuessingTeam: null
+      round1CurrentGuessingTeam: null,
+      // End show state
+      showEndScreen: false
     });
     console.log('GameState: Game state reset in Firestore.');
 

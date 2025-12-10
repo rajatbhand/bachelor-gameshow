@@ -1,7 +1,7 @@
-QuestionID,QuestionText,AnswerCount,Answer1,Value1,Answer2,Value2,Answer3,Value3,Answer4,Value4,Answer5,Value5,Answer6,Value6
-Q1,What is the most popular dating app in India?,6,Tinder,5000,Bumble,4500,Hinge,4000,OkCupid,3500,TrulyMadly,3000,QuackQuack,2500
-Q2,What is the most common first date activity?,8,Coffee/Tea,4000,Dinner,3500,Movie,3000,Walk in Park,2500,Shopping,2000,Adventure Sports,1500,Art Gallery,1000,Concert,800
-Q3,What is the biggest turn-off on a first date?,7,Being Late,3500,Phone Addiction,3000,Arrogance,2500,Poor Hygiene,2000,Not Listening,1500,Being Cheap,1000,Over-sharing,800
-Q4,What is the most romantic gesture?,6,Surprise Trip,4500,Home-cooked Dinner,4000,Personalized Gift,3500,Love Letter,3000,Flowers,2500,Public Declaration,2000
-Q5,What is the most important quality in a partner?,5,Honesty,5000,Kindness,4000,Intelligence,3000,Sense of Humor,2000,Good Looks,1000
-Q6,What is the biggest relationship deal-breaker?,4,Cheating,6000,Lying,5000,Abuse,4000,Incompatibility,3000
+QuestionID,QuestionText,DisplayText,AnswerCount,Answer1,Value1,Answer2,Value2,Answer3,Value3,Answer4,Value4,Answer5,Value5,Answer6,Value6,Answer7,Value7
+r1_q1,Name something you might find in a kitchen,Kitchen Items,7,Refrigerator,45,Stove,32,Microwave,18,Sink,12,Dishwasher,8,Toaster,5,Blender,3
+r1_q2,Name a popular social media platform,Social Media,7,Facebook,50,Instagram,25,Twitter,15,TikTok,12,LinkedIn,8,Snapchat,5,Pinterest,2
+r2_q1,Who was the first President of India?,First President?,7,Dr. Rajendra Prasad,500,Dr. S. Radhakrishnan,200,Zakir Husain,150,V. V. Giri,100,Fakhruddin Ali Ahmed,50,Neelam Sanjiva Reddy,30,Giani Zail Singh,20
+r2_q2,Which is the largest ocean in the world by area?,Largest ocean?,7,Pacific Ocean,800,Atlantic Ocean,600,Indian Ocean,400,Southern Ocean,200,Arctic Ocean,100,Mediterranean Sea,50,Red Sea,20
+r2_q3,What is the capital city of Australia?,Capital of Australia?,7,Canberra,700,Sydney,500,Melbourne,300,Brisbane,150,Perth,80,Adelaide,40,Hobart,10
+r3_q1,Name the most popular programming language according to TIOBE index,Programming Language,7,Python,1200,Java,800,C,600,C++,400,JavaScript,300,C#,200,PHP,100
