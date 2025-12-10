@@ -1238,8 +1238,8 @@ export default function ControlPage() {
                         </div>
                       </div>
 
-                      <div className="border rounded-lg overflow-hidden max-h-96">
-                        <div className="overflow-y-auto bg-gray-50 divide-y divide-gray-200">
+                      <div className="border rounded-lg overflow-hidden h-96 bg-red-50">
+                        <div className="overflow-y-auto bg-gray-50 divide-y divide-gray-200 h-full">
                           {loadedQuestions
                             .filter(q => !(gameState?.round2UsedQuestionIds || []).includes(q.id))
                             .map((q, i) => (

@@ -781,10 +781,15 @@ export class GameStateManager {
       },
       round1Active: false,
       round1CurrentGuessingTeam: null,
+      // Round 2 state - CLEAR ALL ROUND 2 FIELDS
+      round2Options: [],
+      round2UsedQuestionIds: [],
+      round2State: null,
+      round2CurrentTeam: null,
       // End show state
       showEndScreen: false
     });
-    console.log('GameState: Game state reset in Firestore.');
+    console.log('GameState: Game state reset in Firestore (including Round 2 fields)');
 
     // Reset team scores and dugout counts
     const teams = ['red', 'green', 'blue'];
@@ -863,6 +868,7 @@ export class GameStateManager {
       timerActive: false,
       lastUpdated: serverTimestamp()
     });
+    console.log('Game reset completed - Round 2 options cleared');
   }
 
   /**

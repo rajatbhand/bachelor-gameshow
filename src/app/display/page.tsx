@@ -254,9 +254,9 @@ export default function DisplayPage() {
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <img
-            src="/WhatsApp Image 2025-08-12 at 15.56.07_32a23c23.jpg"
+            src="/LOGO.png"
             alt="Akal Ke Ghode"
-            className="w-96 h-96 mx-auto object-contain"
+            className="w-dvw h-dvh mx-auto object-contain"
           />
         </div>
       </div>
@@ -594,7 +594,7 @@ export default function DisplayPage() {
                       </div>
                     ) : (
                       <div className="bg-gray-700 rounded-lg p-4">
-                        <div className="text-2xl text-gray-400 tracking-wide">No vote shifts</div>
+                        <div className="text-2xl text-gray-400 tracking-wide">No new vote gained</div>
                       </div>
                     )}
                   </div>
@@ -651,48 +651,113 @@ export default function DisplayPage() {
           (current.score > prev.score) ? current : prev
           , teams[0]);
 
+        // Get losing teams
+        const losingTeams = teams.filter(t => t.id !== winningTeam.id);
+
         const divisibleAmount = winningTeam.dugoutCount > 0
           ? Math.floor(winningTeam.score / winningTeam.dugoutCount)
           : 0;
 
         return (
           <div className="fixed inset-0 bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center z-50 p-8">
-            <div className="text-center max-w-4xl">
-              <div className="text-7xl font-black text-white mb-8 animate-pulse">
-                🎉 THANK YOU FOR PLAYING! 🎉
-              </div>
-
-              <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-3xl p-12 mb-8 border-4 border-white border-opacity-30">
-                <div className="text-5xl font-bold text-yellow-400 mb-6">
-                  🏆 WINNER 🏆
-                </div>
-
-                <div
-                  className="text-8xl font-black mb-8"
-                  style={{ color: winningTeam.color }}
-                >
-                  {winningTeam.name.toUpperCase()} TEAM
-                </div>
-
-                <div className="grid grid-cols-2 gap-8 text-white">
-                  <div className="bg-white bg-opacity-20 rounded-2xl p-6">
-                    <div className="text-3xl font-semibold mb-3">Total Players</div>
-                    <div className="text-6xl font-black" style={{ color: winningTeam.color }}>
-                      {winningTeam.dugoutCount}
+            <div className="flex items-center justify-between w-full max-w-7xl gap-6">
+              {/* Losing Team Card - Left */}
+              <div className="flex-shrink-0 w-64">
+                <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-2xl p-6 border-2 border-white border-opacity-20">
+                  <div className="text-2xl font-bold mb-4" style={{ color: losingTeams[0]?.color }}>
+                    {losingTeams[0]?.name.toUpperCase()}
+                  </div>
+                  <div className="space-y-3 text-white">
+                    <div className="bg-white bg-opacity-10 rounded-lg p-3">
+                      <div className="text-sm opacity-75">Total Score</div>
+                      <div className="text-3xl font-bold" style={{ color: losingTeams[0]?.color }}>
+                        {losingTeams[0]?.score.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-white bg-opacity-10 rounded-lg p-3">
+                      <div className="text-sm opacity-75">Total Players</div>
+                      <div className="text-3xl font-bold" style={{ color: losingTeams[0]?.color }}>
+                        {losingTeams[0]?.dugoutCount}
+                      </div>
                     </div>
                   </div>
-
-                  <div className="bg-white bg-opacity-20 rounded-2xl p-6">
-                    <div className="text-3xl font-semibold mb-3">Divisible Amount</div>
-                    <div className="text-6xl font-black text-green-400">
-                      ₹{divisibleAmount.toLocaleString()}
-                    </div>
+                  <div className="mt-4 text-center text-yellow-300 font-semibold text-lg">
+                    Better luck next time! 💫
                   </div>
                 </div>
               </div>
 
-              <div className="text-5xl font-bold text-white animate-bounce">
-                Thank you for playing with us! ❤️
+              {/* Winner - Center */}
+              <div className="flex-grow text-center max-w-3xl">
+                <div className="text-6xl font-black text-white mb-6 animate-pulse">
+                  🎉 THANK YOU FOR PLAYING! 🎉
+                </div>
+
+                <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-3xl p-10 border-4 border-white border-opacity-30">
+                  <div className="text-4xl font-bold text-yellow-400 mb-4">
+                    🏆 WINNER 🏆
+                  </div>
+
+                  <div
+                    className="text-7xl font-black mb-6"
+                    style={{ color: winningTeam.color }}
+                  >
+                    {winningTeam.name.toUpperCase()} TEAM
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-6 text-white">
+                    <div className="bg-white bg-opacity-20 rounded-2xl p-5">
+                      <div className="text-2xl font-semibold mb-2">Total Score</div>
+                      <div className="text-5xl font-black" style={{ color: winningTeam.color }}>
+                        {winningTeam.score.toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div className="bg-white bg-opacity-20 rounded-2xl p-5">
+                      <div className="text-2xl font-semibold mb-2">Total Players</div>
+                      <div className="text-5xl font-black" style={{ color: winningTeam.color }}>
+                        {winningTeam.dugoutCount}
+                      </div>
+                    </div>
+
+                    <div className="bg-white bg-opacity-20 rounded-2xl p-5">
+                      <div className="text-2xl font-semibold mb-2">Divisible Amount</div>
+                      <div className="text-5xl font-black text-green-400">
+                        ₹{divisibleAmount.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-4xl font-bold text-white mt-8 animate-bounce">
+                  Thank you for playing with us! ❤️
+                </div>
+              </div>
+
+              {/* Losing Team Card - Right */}
+              <div className="flex-shrink-0 w-64">
+                <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-2xl p-6 border-2 border-white border-opacity-20">
+                  <div className="text-2xl font-bold mb-4" style={{ color: losingTeams[1]?.color }}>
+                    {losingTeams[1]?.name.toUpperCase()}
+                  </div>
+                  <div className="space-y-3 text-white">
+                    <div className="bg-white bg-opacity-10 rounded-lg p-3">
+                      <div className="text-sm opacity-75">Total Score</div>
+                      <div className="text-3xl font-bold" style={{ color: losingTeams[1]?.color }}>
+                        {losingTeams[1]?.score.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-white bg-opacity-10 rounded-lg p-3">
+                      <div className="text-sm opacity-75">Total Players</div>
+                      <div className="text-3xl font-bold" style={{ color: losingTeams[1]?.color }}>
+                        {losingTeams[1]?.dugoutCount}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 text-center text-yellow-300 font-semibold text-lg">
+                    Better luck next time! 💫
+                  </div>
+                </div>
               </div>
             </div>
           </div>

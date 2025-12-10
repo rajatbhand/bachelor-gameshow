@@ -101,16 +101,41 @@ export default function AudiencePage() {
           upiId: existingVote.upiId
         });
 
-        // If they've already voted in the current voting round, show success screen
-        if (existingVote.votingRound === gameState.votingRound) {
-          setSubmitted(true);
-          setSubmittedTeam(existingVote.team);
+        // Check if they've voted in the current voting round
+        const votedInCurrentRound = existingVote.votingRound === gameState.votingRound;
+
+        if (votedInCurrentRound) {
+          // Voted in current round
+          if (gameState.audienceWindow) {
+            // Voting is open - show success screen
+            setSubmitted(true);
+            setSubmittedTeam(existingVote.team);
+          } else {
+            // Voting is closed - show new UI with their selection
+            setSubmitted(false);
+            setSubmittedTeam(existingVote.team);
+          }
+        } else {
+          // Voted in a previous round but not current round
+          if (!gameState.audienceWindow) {
+            // Voting is closed - show new UI with their previous selection
+            setSubmitted(false);
+            setSubmittedTeam(existingVote.team);
+          } else {
+            // Voting is open - allow them to vote again (round 2+)
+            setSubmitted(false);
+            setSubmittedTeam(null);
+          }
         }
+      } else {
+        // New voter - reset states
+        setSubmitted(false);
+        setSubmittedTeam(null);
       }
     };
 
     checkExistingVoter();
-  }, [user, gameState?.votingRound]); // Only re-check when user changes or voting round changes
+  }, [user, gameState?.votingRound, gameState?.audienceWindow]); // Re-check when voting window state changes
 
   const handleGoogleSignIn = async () => {
     try {
@@ -252,9 +277,9 @@ export default function AudiencePage() {
           <div className="text-center mb-4">
             <div className="mb-4">
               <img
-                src="/WhatsApp Image 2025-08-12 at 15.56.07_32a23c23.jpg"
+                src="/LOGO.png"
                 alt="Akal Ke Ghode Logo"
-                className="w-24 h-24 mx-auto rounded-lg shadow-md"
+                className="w-24 h-24 mx-auto rounded-lg"
               />
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">AKAL KE GHODE</h1>
@@ -422,196 +447,283 @@ export default function AudiencePage() {
   }
 
   // Main voting form
+  // Apply team background color when voting is closed and user has voted
+  const teamColors = {
+    red: 'bg-red-600',
+    green: 'bg-green-600',
+    blue: 'bg-blue-600'
+  };
+
+  const mainBgClass = !gameState?.audienceWindow && submittedTeam
+    ? `min-h-screen ${teamColors[submittedTeam]} p-4 flex items-center justify-center`
+    : 'min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4 flex items-center justify-center';
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4 flex items-center justify-center">
+    <div className={mainBgClass}>
       <div className="bg-white p-4 max-w-md w-full rounded-lg">
         {/* Header */}
         <div className="text-center mb-4">
           <div className="flex items-center justify-center mb-4">
             <img
-              src="/WhatsApp Image 2025-08-12 at 15.56.07_32a23c23.jpg"
+              src="/LOGO.png"
               alt="Akal Ke Ghode Logo"
-              className="w-16 h-16 mx-4 rounded-lg shadow-md"
+              className="w-16 h-16 mx-4 rounded-lg"
             />
             <h1 className="text-3xl font-bold text-gray-900">AKAL KE GHODE</h1>
           </div>
           <p className="text-sm text-gray-500 mt-2">Signed in as: {user.email || 'User'}</p>
         </div>
 
-        {/* Episode Info */}
-        {gameState?.episodeInfo && (
-          <div className="bg-indigo-100 text-indigo-900 p-3 rounded-lg mb-6 text-center text-sm font-medium">
-            {gameState.episodeInfo}
+        {/* Show welcome message for existing voters */}
+        {isExistingVoter && existingVoterData && (
+          <div className="bg-blue-50 border border-blue-200 p-2 rounded-lg mb-4">
+            <p className="text-blue-900 text-center">
+              <span className="font-bold">Welcome back, {existingVoterData.name}!</span>
+            </p>
+            {/* Episode Info */}
+            {gameState?.episodeInfo && (
+              <div className="text-blue-900 text-center mt-2">
+                <div className="font-bold">You are Playing</div>
+                <div>{gameState.episodeInfo}</div>
+              </div>
+            )}
           </div>
         )}
 
         {/* Voting Status */}
         <div className={`text-center p-3 rounded-lg mb-4 ${gameState?.audienceWindow
           ? 'bg-green-100 text-green-800'
-          : 'bg-red-100 text-red-800'
+          : 'bg-orange-100 text-orange-800'
           }`}>
           <div className="font-bold">
             {gameState?.audienceWindow ? '🗳️ VOTING OPEN' : '❌ VOTING CLOSED'}
-          </div>
-          <div className="text-sm">
-            {gameState?.audienceWindow
-              ? 'Select your team below'
-              : 'Please wait for voting to open'
-            }
           </div>
         </div>
 
         {/* Team Selection */}
         <div className="mb-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-3">Select Your Team</h2>
-          <div className="grid grid-cols-3 gap-1">
-            {[
-              { id: 'red', name: 'Red', color: '#ef4444' },
-              { id: 'green', name: 'Green', color: '#22c55e' },
-              { id: 'blue', name: 'Blue', color: '#3b82f6' }
-            ].map((teamOption) => {
-              const teamData = teams.find(t => t.id === teamOption.id);
-              return (
-                <button
-                  key={teamOption.id}
-                  onClick={() => handleTeamSelect(teamOption.id as 'red' | 'green' | 'blue')}
-                  className={`p-2 rounded-lg border-2 transition-all ${formData.team === teamOption.id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                  disabled={!gameState?.audienceWindow}
-                >
-                  <div>
-                    {/* Left: Team name and color */}
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-4 h-4 rounded-full"
-                        style={{ backgroundColor: teamOption.color }}
-                      ></div>
-                      <div className="text-left">
-                        <div className="font-bold text-lg text-black" style={{ color: teamOption.color }}>{teamOption.name}</div>
-                        <div className="text-xs text-gray-500">{teamData?.dugoutCount || 0} votes</div>
-                        <div className="text-xl font-bold text-black">₹{teamData?.score.toLocaleString() || 0}</div>
-                        {teamData && teamData.dugoutCount > 0 && (
-                          <div className="text-xs text-green-600">
-                            ₹{calculateEarnableShare(teamOption.id as 'red' | 'green' | 'blue')}/person
+          {!gameState?.audienceWindow && submittedTeam ? (
+            // Layout when voting is CLOSED and user has voted
+            <>
+              {/* User's Choice Section */}
+              <div className="mb-4">
+                <h2 className="text-lg font-bold text-gray-900">Your Choice</h2>
+                {[
+                  { id: 'red', name: 'Red', color: '#ef4444' },
+                  { id: 'green', name: 'Green', color: '#22c55e' },
+                  { id: 'blue', name: 'Blue', color: '#3b82f6' }
+                ].filter(teamOption => teamOption.id === submittedTeam).map((teamOption) => {
+                  const teamData = teams.find(t => t.id === teamOption.id);
+                  // Map team to 100-tone background color
+                  const bgColorClass = {
+                    red: 'bg-red-100',
+                    green: 'bg-green-100',
+                    blue: 'bg-blue-100'
+                  }[teamOption.id];
+
+                  return (
+                    <div key={teamOption.id} className={`p-4 rounded-lg ${bgColorClass}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-6 h-6 rounded-full" style={{ backgroundColor: teamOption.color }}></div>
+                          <div className="text-left">
+                            <div className="font-bold text-2xl" style={{ color: teamOption.color }}>{teamOption.name}</div>
+                            <div className="text-sm text-gray-600 opacity-90">{teamData?.dugoutCount || 0} votes</div>
                           </div>
-                        )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-3xl font-bold text-gray-900">₹{teamData?.score.toLocaleString() || 0}</div>
+                          {teamData && teamData.dugoutCount > 0 && (
+                            <div className="text-sm text-gray-600">
+                              ₹{calculateEarnableShare(teamOption.id as 'red' | 'green' | 'blue')}/person
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Earnable Share Preview */}
-          {formData.team && (
-            <div className="mt-3 bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
-              <div className="text-sm text-yellow-900 text-center">
-                <span className="font-bold">Your Potential Share: </span>
-                ₹{calculateEarnableShare(formData.team).toLocaleString()}
+                  );
+                })}
               </div>
-            </div>
+
+              {/* Other Teams Section */}
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Other Teams</h2>
+                <div className="space-y-2">
+                  {[
+                    { id: 'red', name: 'Red', color: '#ef4444' },
+                    { id: 'green', name: 'Green', color: '#22c55e' },
+                    { id: 'blue', name: 'Blue', color: '#3b82f6' }
+                  ].filter(teamOption => teamOption.id !== submittedTeam).map((teamOption) => {
+                    const teamData = teams.find(t => t.id === teamOption.id);
+                    return (
+                      <div
+                        key={teamOption.id}
+                        className="p-3 rounded-lg border-2 border-gray-300 bg-white"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-4 h-4 rounded-full"
+                            style={{ backgroundColor: teamOption.color }}
+                          ></div>
+                          <div className="text-left flex-1">
+                            <div className="font-bold text-lg text-black" style={{ color: teamOption.color }}>{teamOption.name}</div>
+                            <div className="text-xs text-gray-500">{teamData?.dugoutCount || 0} votes</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xl font-bold text-black">₹{teamData?.score.toLocaleString() || 0}</div>
+                            {teamData && teamData.dugoutCount > 0 && (
+                              <div className="text-xs text-green-600">
+                                ₹{calculateEarnableShare(teamOption.id as 'red' | 'green' | 'blue')}/person
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          ) : (
+            // Original layout when voting is OPEN
+            <>
+              <h2 className="text-lg font-bold text-gray-900 mb-3">Select Your Team</h2>
+              <div className="grid grid-cols-3 gap-1">
+                {[
+                  { id: 'red', name: 'Red', color: '#ef4444' },
+                  { id: 'green', name: 'Green', color: '#22c55e' },
+                  { id: 'blue', name: 'Blue', color: '#3b82f6' }
+                ].map((teamOption) => {
+                  const teamData = teams.find(t => t.id === teamOption.id);
+                  return (
+                    <button
+                      key={teamOption.id}
+                      onClick={() => handleTeamSelect(teamOption.id as 'red' | 'green' | 'blue')}
+                      className={`p-2 rounded-lg transition-all relative ${formData.team === teamOption.id
+                        ? 'border-2 border-blue-500 bg-blue-50'
+                        : 'border-2 border-gray-300 hover:border-gray-400'
+                        }`}
+                      disabled={!gameState?.audienceWindow}
+                    >
+                      <div>
+                        {/* Left: Team name and color */}
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-4 h-4 rounded-full"
+                            style={{ backgroundColor: teamOption.color }}
+                          ></div>
+                          <div className="text-left">
+                            <div className="font-bold text-lg text-black" style={{ color: teamOption.color }}>{teamOption.name}</div>
+                            <div className="text-xs text-gray-500">{teamData?.dugoutCount || 0} votes</div>
+                            <div className="text-xl font-bold text-black">₹{teamData?.score.toLocaleString() || 0}</div>
+                            {teamData && teamData.dugoutCount > 0 && (
+                              <div className="text-xs text-green-600">
+                                ₹{calculateEarnableShare(teamOption.id as 'red' | 'green' | 'blue')}/person
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Earnable Share Preview */}
+              {formData.team && (
+                <div className="mt-3 bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
+                  <div className="text-sm text-yellow-900 text-center">
+                    <span className="font-bold">Your Potential Share: </span>
+                    ₹{calculateEarnableShare(formData.team).toLocaleString()}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Show full form only for new voters */}
-          {!isExistingVoter && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Your Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black placeholder-gray-500"
-                  placeholder="Enter your name"
-                  disabled={!gameState?.audienceWindow}
-                  required
-                />
-              </div>
+        {/* Form - Only show when NOT displaying the new closed UI */}
+        {!(!gameState?.audienceWindow && submittedTeam) && (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Show full form only for new voters */}
+            {!isExistingVoter && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Your Name
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black placeholder-gray-500"
+                    placeholder="Enter your name"
+                    disabled={!gameState?.audienceWindow}
+                    required
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone Number
-                </label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black placeholder-gray-500"
-                  placeholder="Enter your phone number"
-                  disabled={!gameState?.audienceWindow}
-                  required
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black placeholder-gray-500"
+                    placeholder="Enter your phone number"
+                    disabled={!gameState?.audienceWindow}
+                    required
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  UPI ID
-                </label>
-                <input
-                  type="text"
-                  value={formData.upiId}
-                  onChange={(e) => setFormData(prev => ({ ...prev, upiId: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black placeholder-gray-500"
-                  placeholder="Enter your UPI ID (e.g., yourname@paytm)"
-                  disabled={!gameState?.audienceWindow}
-                  required
-                />
-              </div>
-            </>
-          )}
-
-          {/* Show welcome message for existing voters */}
-          {isExistingVoter && existingVoterData && (
-            <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
-              <p className="text-sm text-blue-900">
-                <span className="font-bold">Welcome back, {existingVoterData.name}!</span>
-                <br />
-                <span className="text-xs">Just select your team below</span>
-              </p>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <div className="bg-red-100 text-red-800 p-3 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={!gameState?.audienceWindow || loading || !formData.team}
-            className={`w-full py-3 rounded-lg font-bold transition-all ${gameState?.audienceWindow && formData.team && !loading
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-          >
-            {loading ? (
-              <div className="flex items-center justify-center">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                Submitting...
-              </div>
-            ) : (
-              'Submit Team Selection'
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    UPI ID
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.upiId}
+                    onChange={(e) => setFormData(prev => ({ ...prev, upiId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black placeholder-gray-500"
+                    placeholder="Enter your UPI ID (e.g., yourname@paytm)"
+                    disabled={!gameState?.audienceWindow}
+                    required
+                  />
+                </div>
+              </>
             )}
-          </button>
-        </form>
 
-        {/* Footer 
-        <div className="text-center mt-6 text-sm text-gray-500">
-          <p>3-layer duplicate prevention active</p>
-          <p className="text-xs mt-1">(Device + Phone/UPI + Authentication)</p>
-        </div>*/}
+
+            {/* Error Message */}
+            {error && (
+              <div className="bg-red-100 text-red-800 p-3 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={!gameState?.audienceWindow || loading || !formData.team}
+              className={`w-full py-3 rounded-lg font-bold transition-all ${gameState?.audienceWindow && formData.team && !loading
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+            >
+              {loading ? (
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  Submitting...
+                </div>
+              ) : (
+                'Submit Team Selection'
+              )}
+            </button>
+          </form>
+        )}
       </div>
-    </div>
+    </div >
   );
 }
