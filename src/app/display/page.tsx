@@ -659,28 +659,28 @@ export default function DisplayPage() {
           : 0;
 
         return (
-          <div className="fixed inset-0 bg-gradient-to-br from-amber-700 to-amber-950 flex items-center justify-center z-50 p-8">
+          <div className="fixed inset-0 bg-amber-900 flex items-center justify-center z-50 p-8">
             <div className="flex items-center justify-between w-full max-w-7xl gap-6">
               {/* Losing Team Card - Left */}
               <div className="flex-1">
-                <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-2xl p-6 border-2 border-amber-400 h-full flex flex-col">
+                <div className="bg-amber-200 bg-opacity-10 backdrop-blur-lg rounded-2xl p-6 border-2 border-amber-400 h-full flex flex-col">
                   <div className="text-5xl font-bold mb-4 text-center" style={{ color: losingTeams[0]?.color }}>
                     {losingTeams[0]?.name.toUpperCase()} TEAM
                   </div>
                   <div className="space-y-3 text-white flex-1 flex flex-col justify-center">
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Total Amount</div>
                       <div className="text-3xl font-bold" style={{ color: losingTeams[0]?.color }}>
                         {losingTeams[0]?.score.toLocaleString()}
                       </div>
                     </div>
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Total Players</div>
                       <div className="text-3xl font-bold" style={{ color: losingTeams[0]?.color }}>
                         {losingTeams[0]?.dugoutCount}
                       </div>
                     </div>
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Divisible Amount</div>
                       <div className="text-3xl font-bold" style={{ color: losingTeams[0]?.color }}>
                         ₹{(losingTeams[0]?.dugoutCount > 0 ? Math.floor(losingTeams[0].score / losingTeams[0].dugoutCount) : 0).toLocaleString()}
@@ -693,7 +693,7 @@ export default function DisplayPage() {
               {/* Winner - Center */}
               <div className="flex-1">
 
-                <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-2xl p-6 border-2 border-amber-400 h-full flex flex-col">
+                <div className="bg-amber-200 bg-opacity-10 backdrop-blur-lg rounded-2xl p-6 border-2 border-amber-400 h-full flex flex-col">
 
 
                   <div
@@ -704,21 +704,21 @@ export default function DisplayPage() {
                   </div>
 
                   <div className="space-y-3 text-white flex-1 flex flex-col justify-center">
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Total Amount</div>
                       <div className="text-3xl font-bold" style={{ color: winningTeam.color }}>
                         {winningTeam.score.toLocaleString()}
                       </div>
                     </div>
 
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Total Players</div>
                       <div className="text-3xl font-bold" style={{ color: winningTeam.color }}>
                         {winningTeam.dugoutCount}
                       </div>
                     </div>
 
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Divisible Amount</div>
                       <div className="text-3xl font-bold text-green-400" style={{ color: winningTeam.color }}>
                         ₹{divisibleAmount.toLocaleString()}
@@ -731,24 +731,24 @@ export default function DisplayPage() {
 
               {/* Losing Team Card - Right */}
               <div className="flex-1">
-                <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-2xl p-6 border-2 border-amber-400 h-full flex flex-col">
+                <div className="bg-amber-200 bg-opacity-10 backdrop-blur-lg rounded-2xl p-6 border-2 border-amber-400 h-full flex flex-col">
                   <div className="text-5xl font-bold mb-4 text-center" style={{ color: losingTeams[1]?.color }}>
                     {losingTeams[1]?.name.toUpperCase()} TEAM
                   </div>
                   <div className="space-y-3 text-white flex-1 flex flex-col justify-center">
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Total Amount</div>
                       <div className="text-3xl font-bold" style={{ color: losingTeams[1]?.color }}>
                         {losingTeams[1]?.score.toLocaleString()}
                       </div>
                     </div>
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Total Players</div>
                       <div className="text-3xl font-bold" style={{ color: losingTeams[1]?.color }}>
                         {losingTeams[1]?.dugoutCount}
                       </div>
                     </div>
-                    <div className="bg-white bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
+                    <div className="bg-black bg-opacity-10 rounded-lg p-3 flex items-center justify-between">
                       <div className="text-xl opacity-75">Divisible Amount</div>
                       <div className="text-3xl font-bold" style={{ color: losingTeams[1]?.color }}>
                         ₹{(losingTeams[1]?.dugoutCount > 0 ? Math.floor(losingTeams[1].score / losingTeams[1].dugoutCount) : 0).toLocaleString()}
