@@ -242,8 +242,81 @@ export default function ControlPage() {
     }
   };
 
+  // Utility function to export audience data to CSV
+  const exportAudienceToCSV = async (): Promise<boolean> => {
+    try {
+      console.log('Exporting audience data to CSV...');
+
+      // Get current audience members
+      const members = await gameStateManager.getAudienceMembers();
+
+      if (members.length === 0) {
+        console.log('No audience data to export');
+        return true; // No data is not an error
+      }
+
+      // Create CSV headers
+      const headers = ['Name', 'Phone', 'UPI ID', 'Team', 'Voting Round', 'Auth Email', 'Device ID', 'Timestamp'];
+
+      // Create CSV rows
+      const rows = members.map(member => [
+        member.name || '',
+        member.phone || '',
+        member.upiId || '',
+        member.team || '',
+        member.votingRound || '1',
+        member.authEmail || '',
+        member.deviceId || '',
+        member.submittedAt ? new Date(member.submittedAt as any).toISOString() : ''
+      ]);
+
+      // Combine headers and rows
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      // Create and download CSV file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+      const filename = `audience-votes-backup-${timestamp}.csv`;
+
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      console.log(`Exported ${members.length} audience members to ${filename}`);
+      return true;
+    } catch (error) {
+      console.error('Error exporting audience data:', error);
+      return false;
+    }
+  };
+
   const handleResetGame = async () => {
+    // First confirmation
     if (!confirm('Are you sure you want to reset the entire game?')) return;
+
+    // Auto-export audience data before reset
+    console.log('Auto-exporting audience data before reset...');
+    const exportSuccess = await exportAudienceToCSV();
+
+    if (exportSuccess) {
+      alert('Audience data has been exported to CSV for backup. The reset will now proceed.');
+    } else {
+      const proceedAnyway = confirm('Warning: Failed to export audience data. Do you still want to proceed with the reset? This will permanently delete all audience votes!');
+      if (!proceedAnyway) return;
+    }
+
+    // Final confirmation with clear warning
+    const finalConfirm = confirm('FINAL CONFIRMATION: This will permanently delete all audience votes, reset scores, and clear game state. Continue?');
+    if (!finalConfirm) return;
 
     setLoading(true);
     try {
@@ -255,8 +328,10 @@ export default function ControlPage() {
 
       // The onSnapshot listener in useEffect will automatically refresh questions
       console.log('Control: Game reset completed, questions refreshed');
+      alert('Game reset complete! Audience data was exported before reset.');
     } catch (error) {
       console.error('Error resetting game:', error);
+      alert('Error during game reset. Check console for details.');
     } finally {
       setLoading(false);
     }
@@ -1700,6 +1775,28 @@ export default function ControlPage() {
                   <div>🎵 Host Answers: /sounds/host-answer-reveal.mp3</div>
                 </div>
               </div>
+            </div>
+
+            {/* Export Audience Data */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-bold mb-4">Export Audience Data</h2>
+              <button
+                onClick={async () => {
+                  const success = await exportAudienceToCSV();
+                  if (success) {
+                    alert('Audience data exported successfully!');
+                  } else {
+                    alert('Failed to export audience data. Check console for details.');
+                  }
+                }}
+                className="w-full p-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700"
+                disabled={loading}
+              >
+                📥 DOWNLOAD AUDIENCE CSV
+              </button>
+              <p className="text-xs text-gray-500 mt-2">
+                Export current audience votes to CSV file
+              </p>
             </div>
 
             {/* Reset Game */}
