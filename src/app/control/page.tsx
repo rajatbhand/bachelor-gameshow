@@ -808,7 +808,7 @@ export default function ControlPage() {
 
             {/* Game State Overview */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="text-center">
+              <div className="text-left">
                 <div className="text-sm text-gray-600 mb-2">Current Round</div>
                 <div className="text-xl font-bold mb-2">{gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}</div>
                 <select
@@ -823,7 +823,7 @@ export default function ControlPage() {
                       handleUpdateGameState({ currentRound: newRound as GameState['currentRound'] });
                     }
                   }}
-                  className="text-xs p-1 border rounded"
+                  className="text-md p-2 border rounded w-full"
                   disabled={loading}
                 >
                   <option value="pre-show">Pre-Show</option>
