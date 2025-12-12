@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
+import { useControlAccess } from '@/contexts/ControlAccessContext';
 import Papa from 'papaparse';
 import {
   collection,
@@ -24,6 +25,11 @@ import {
 import { db } from '@/lib/firebase';
 
 export default function ControlPage() {
+  // Authentication
+  const { isAuthenticated, authenticate, logout } = useControlAccess();
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
@@ -692,7 +698,69 @@ export default function ControlPage() {
     }
   };
 
+  // Password authentication handler
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
 
+    const success = authenticate(password);
+    if (!success) {
+      setAuthError('Incorrect password. Please try again.');
+      setPassword('');
+    }
+  };
+
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg p-8 max-w-md w-full">
+          {/* Header */}
+          <div className="text-center mb-6">
+            <div className="text-4xl mb-4">🎮</div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Control Panel Access</h1>
+            <p className="text-gray-600">Enter password to continue</p>
+          </div>
+
+          {/* Password Form */}
+          <form onSubmit={handlePasswordSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-black"
+                placeholder="Enter control panel password"
+                autoFocus
+                required
+              />
+            </div>
+
+            {authError && (
+              <div className="bg-red-100 text-red-800 p-3 rounded-lg text-sm">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition-colors"
+            >
+              Access Control Panel
+            </button>
+          </form>
+
+          {/* Footer */}
+          <div className="text-center mt-6 text-sm text-gray-500">
+            <p>Authorized personnel only</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
 
   return (
@@ -728,7 +796,15 @@ export default function ControlPage() {
           </div>
           {/* Header */}
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">Game Show Control Panel</h1>
+            <div className="flex justify-between items-center mb-4">
+              <h1 className="text-3xl font-bold text-gray-900">Game Show Control Panel</h1>
+              <button
+                onClick={logout}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors text-sm"
+              >
+                🚪 Logout
+              </button>
+            </div>
 
             {/* Game State Overview */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

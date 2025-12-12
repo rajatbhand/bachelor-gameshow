@@ -294,7 +294,7 @@ export default function DisplayPage() {
                 <div key={team.id} className="text-center">
                   <div className="flex items-center justify-between">
                     <div className="text-3xl font-bold tracking-wide" style={{ color: team.color }}>{team.name}</div>
-                    <div className="text-3xl font-bold tracking-wide">₹{team.score.toLocaleString()}</div>
+                    <div className="text-3xl font-bold tracking-wide ml-8">₹{team.score.toLocaleString()}</div>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="text-2xl tracking-wide text-gray-400">Dugout:</div>
