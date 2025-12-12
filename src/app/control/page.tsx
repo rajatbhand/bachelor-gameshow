@@ -766,20 +766,20 @@ export default function ControlPage() {
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between">
+        <div className="flex justify-between space-x-6">
           {/* CSV Upload */}
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6 flex-none">
             <h2 className="text-xl font-bold mb-4">Upload CSV Questions</h2>
-            <div className="space-y-3">
+            <div className="space-y-6">
               <input
                 type="file"
                 accept=".csv"
                 onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                className="w-full p-2 border rounded"
+                className=" block p-2 border rounded w-full"
               />
               <button
                 onClick={handleCsvUpload}
-                className="w-full p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
+                className="p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 w-full"
                 disabled={loading || !csvFile}
               >
                 UPLOAD CSV
@@ -787,7 +787,7 @@ export default function ControlPage() {
               <div className="flex space-x-2">
                 <button
                   onClick={() => window.open('/sample-questions.csv', '_blank')}
-                  className="flex-1 p-2 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                  className="p-2 bg-green-200 text-green-800 rounded text-sm hover:bg-green-700 hover:text-white w-full"
                 >
                   📥 Download Sample CSV
                 </button>
@@ -795,9 +795,9 @@ export default function ControlPage() {
             </div>
           </div>
           {/* Header */}
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6 grow">
             <div className="flex justify-between items-center mb-4">
-              <h1 className="text-3xl font-bold text-gray-900">Game Show Control Panel</h1>
+              <h1 className="text-xl font-bold text-gray-900">Game Show Control Panel</h1>
               <button
                 onClick={logout}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors text-sm"
