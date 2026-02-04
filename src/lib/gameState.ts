@@ -20,7 +20,7 @@ import { db } from './firebase';
 
 // Game State Types
 export interface GameState {
-  currentRound: 'pre-show' | 'round1' | 'round2' | 'round3' | 'final';
+  currentRound: 'pre-show' | 'round1' | 'round2' | 'round3' | 'final' | 'brand';
   currentQuestion: string | null;
   activeTeam: 'red' | 'green' | 'blue' | 'host' | null;
   bigX: boolean;
@@ -61,6 +61,8 @@ export interface GameState {
   round2UsedQuestionIds?: string[]; // Track questions used across all teams
   // End show state
   showEndScreen: boolean; // Whether to show the end show thank you screen
+  // Brand Section State
+  activeBrandQuestionId?: string | null;
 }
 
 export interface Team {
@@ -77,6 +79,12 @@ export interface Question {
   displayText?: string; // Optional teaser text for Round 2 selection phase
   answers: Answer[];
   answerCount: number;
+}
+
+export interface BrandQuestion {
+  id: string;
+  text: string;
+  // Brand questions have no options/answers
 }
 
 export interface Answer {
@@ -293,6 +301,52 @@ export class GameStateManager {
     this.listeners.set('gameState', unsubscribe);
 
     // Return cleanup function that handles both listeners
+    return () => {
+      if (currentQuestionUnsubscribe) {
+        currentQuestionUnsubscribe();
+      }
+      unsubscribe();
+    };
+  }
+
+  // Subscribe to current brand question
+  subscribeToBrandQuestion(callback: (question: BrandQuestion | null) => void): () => void {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    let currentQuestionUnsubscribe: (() => void) | null = null;
+
+    const unsubscribe = onSnapshot(gameStateRef, async (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const state = docSnapshot.data() as GameState;
+
+        // Clean up previous listener
+        if (currentQuestionUnsubscribe) {
+          currentQuestionUnsubscribe();
+          currentQuestionUnsubscribe = null;
+        }
+
+        if (state.activeBrandQuestionId && state.currentRound === 'brand') {
+          console.log('GameStateManager: Setting up Brand question listener for:', state.activeBrandQuestionId);
+          const questionRef = doc(db, 'brand_questions', state.activeBrandQuestionId);
+
+          currentQuestionUnsubscribe = onSnapshot(questionRef, (questionDoc) => {
+            if (questionDoc.exists()) {
+              const questionData = questionDoc.data() as BrandQuestion;
+              callback(questionData);
+            } else {
+              callback(null);
+            }
+          });
+
+          this.listeners.set('activeBrandQuestion', currentQuestionUnsubscribe);
+        } else {
+          callback(null);
+        }
+      }
+    });
+
+    // Track main listener too
+    this.listeners.set('brandGameState', unsubscribe);
+
     return () => {
       if (currentQuestionUnsubscribe) {
         currentQuestionUnsubscribe();
@@ -681,6 +735,12 @@ export class GameStateManager {
     await setDoc(questionRef, question);
   }
 
+  // Add brand question
+  async addBrandQuestion(question: BrandQuestion): Promise<void> {
+    const questionRef = doc(db, 'brand_questions', question.id);
+    await setDoc(questionRef, question);
+  }
+
   // Reveal all answers at once
   async revealAllAnswers(questionId: string): Promise<void> {
     const questionRef = doc(db, 'questions', questionId);
@@ -739,6 +799,21 @@ export class GameStateManager {
     console.log(`GameState: Cleared ${querySnapshot.size} questions.`);
   }
 
+  // Clear all BRAND questions
+  async clearAllBrandQuestions(): Promise<void> {
+    console.log('GameState: Clearing all brand questions from Firestore...');
+    const questionsCollectionRef = collection(db, 'brand_questions');
+    const querySnapshot = await getDocs(questionsCollectionRef);
+    const batch = writeBatch(db);
+
+    querySnapshot.forEach((docSnapshot) => {
+      batch.delete(docSnapshot.ref);
+    });
+
+    await batch.commit();
+    console.log(`GameState: Cleared ${querySnapshot.size} brand questions.`);
+  }
+
   // Reset game
   async resetGame(): Promise<void> {
     console.log('GameStateManager: Starting game reset...');
@@ -787,7 +862,9 @@ export class GameStateManager {
       round2State: null,
       round2CurrentTeam: null,
       // End show state
-      showEndScreen: false
+      showEndScreen: false,
+      // Brand state
+      activeBrandQuestionId: null
     });
     console.log('GameState: Game state reset in Firestore (including Round 2 fields)');
 

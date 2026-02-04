@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { gameStateManager, GameState, Team, Question } from '@/lib/gameState';
+import { gameStateManager, GameState, Team, Question, BrandQuestion } from '@/lib/gameState';
 import { useControlAccess } from '@/contexts/ControlAccessContext';
 import Papa from 'papaparse';
 import {
@@ -48,8 +48,20 @@ export default function ControlPage() {
     blue: 0
   });
   const [round2Selection, setRound2Selection] = useState<string[]>([]);
+
   const [round2ManualScores, setRound2ManualScores] = useState<{ [key: string]: number }>({});
   const [episodeInfo, setEpisodeInfo] = useState('');
+  const [manualScoreInputs, setManualScoreInputs] = useState<{ [key: string]: string }>({ red: '', green: '', blue: '' });
+
+  // Brand Section State
+  const [brandQuestions, setBrandQuestions] = useState<BrandQuestion[]>([]);
+  const [activeBrandQuestionId, setActiveBrandQuestionId] = useState<string | null>(null);
+  const [brandCsvFile, setBrandCsvFile] = useState<File | null>(null);
+
+  // Upload Tab State
+  const [activeUploadTab, setActiveUploadTab] = useState<'game' | 'brand'>('game');
+  // Question Bank Tab State
+  const [activeBankTab, setActiveBankTab] = useState<'game' | 'brand'>('game');
 
   // Audio refs
   const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -178,7 +190,25 @@ export default function ControlPage() {
       }
     };
 
+    // Load Brand questions from Firebase
+    const loadBrandQuestionsFromFirebase = async () => {
+      try {
+        const q = query(collection(db, 'brand_questions'));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+          const questions: BrandQuestion[] = [];
+          querySnapshot.forEach((docSnapshot) => {
+            questions.push({ id: docSnapshot.id, ...docSnapshot.data() } as BrandQuestion);
+          });
+          setBrandQuestions(questions);
+        });
+        return unsubscribe;
+      } catch (error) {
+        console.error('Error loading brand questions:', error);
+      }
+    };
+
     const unsubscribeQuestionsPromise = loadQuestionsFromFirebase();
+    const unsubscribeBrandQuestionsPromise = loadBrandQuestionsFromFirebase();
 
     return () => {
       unsubscribeGameState();
@@ -186,6 +216,7 @@ export default function ControlPage() {
       unsubscribeQuestion();
       unsubscribeAudience();
       unsubscribeQuestionsPromise.then(unsubscribe => unsubscribe && unsubscribe());
+      unsubscribeBrandQuestionsPromise.then(unsubscribe => unsubscribe && unsubscribe());
     };
   }, []);
 
@@ -358,6 +389,77 @@ export default function ControlPage() {
     gameStateManager.updateGameState(updates).catch((error) => {
       console.error('Error selecting question:', error);
     });
+  };
+
+  const handleBrandCsvUpload = async () => {
+    if (!brandCsvFile) return;
+
+    if (!confirm('Are you sure you want to upload this BRAND CSV? This will DELETE all existing BRAND questions.')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await gameStateManager.clearAllBrandQuestions();
+      console.log('Control: All existing brand questions have been cleared.');
+
+      Papa.parse(brandCsvFile, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results: Papa.ParseResult<any>) => {
+          const batch = writeBatch(db);
+          let count = 0;
+          for (const row of results.data) {
+            const questionId = row.QuestionID;
+            const questionText = row.QuestionText;
+
+            if (!questionId || !questionText) {
+              console.warn('Skipping invalid row:', row);
+              continue;
+            }
+
+            const question: BrandQuestion = {
+              id: questionId.trim(),
+              text: questionText.trim()
+            };
+
+            const questionDocRef = doc(db, 'brand_questions', questionId.trim());
+            batch.set(questionDocRef, question);
+            count++;
+          }
+
+          await batch.commit();
+
+          alert(`Successfully loaded ${count} BRAND questions!`);
+          setBrandCsvFile(null);
+          setLoading(false);
+        },
+        error: (error) => {
+          console.error('Error parsing Brand CSV:', error);
+          alert('Error parsing Brand CSV.');
+          setLoading(false);
+        }
+      });
+    } catch (error) {
+      console.error('Error uploading Brand CSV:', error);
+      alert('Error uploading Brand CSV.');
+      setLoading(false);
+    }
+  };
+
+  const handleSelectBrandQuestion = async (questionId: string) => {
+    setLoading(true);
+    try {
+      await gameStateManager.updateGameState({
+        activeBrandQuestionId: questionId,
+        currentRound: 'brand' // Ensure we are in brand mode
+      });
+      console.log('Control: Selected Brand question:', questionId);
+    } catch (error) {
+      console.error('Error selecting brand question:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCsvUpload = async () => {
@@ -843,30 +945,69 @@ export default function ControlPage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between space-x-6">
           {/* CSV Upload */}
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6 flex-none">
-            <h2 className="text-xl font-bold mb-4">Upload CSV Questions</h2>
-            <div className="space-y-6">
-              <input
-                type="file"
-                accept=".csv"
-                onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                className=" block p-2 border rounded w-full"
-              />
+          <div className="bg-white rounded-lg shadow-md mb-6 flex-none overflow-hidden">
+            <div className="flex border-b">
               <button
-                onClick={handleCsvUpload}
-                className="p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 w-full"
-                disabled={loading || !csvFile}
+                className={`flex-1 py-3 font-bold text-center transition-colors ${activeUploadTab === 'game' ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                onClick={() => setActiveUploadTab('game')}
               >
-                UPLOAD CSV
+                Game Questions
               </button>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => window.open('/sample-questions.csv', '_blank')}
-                  className="p-2 bg-green-200 text-green-800 rounded text-sm hover:bg-green-700 hover:text-white w-full"
-                >
-                  📥 Download Sample CSV
-                </button>
-              </div>
+              <button
+                className={`flex-1 py-3 font-bold text-center transition-colors ${activeUploadTab === 'brand' ? 'bg-purple-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                onClick={() => setActiveUploadTab('brand')}
+              >
+                Brand Questions
+              </button>
+            </div>
+
+            <div className="p-6">
+              {activeUploadTab === 'game' ? (
+                <div className="space-y-6">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                    className="block p-2 border rounded w-full"
+                  />
+                  <button
+                    onClick={handleCsvUpload}
+                    className="p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 w-full"
+                    disabled={loading || !csvFile}
+                  >
+                    UPLOAD GAME CSV
+                  </button>
+                  <button
+                    onClick={() => window.open('/sample-questions.csv', '_blank')}
+                    className="p-3 bg-green-100 text-green-800 border border-green-200 rounded-lg text-sm hover:bg-green-200 w-full flex items-center justify-center gap-2 font-semibold"
+                  >
+                    <span>📥</span> Download Sample Game CSV
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <h2 className="text-xl font-bold mb-2">Upload Brand Questions</h2>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => setBrandCsvFile(e.target.files?.[0] || null)}
+                    className="block p-2 border rounded w-full"
+                  />
+                  <button
+                    onClick={handleBrandCsvUpload}
+                    className="p-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 w-full"
+                    disabled={loading || !brandCsvFile}
+                  >
+                    UPLOAD BRAND CSV
+                  </button>
+                  <button
+                    onClick={() => window.open('/sample-brand-questions.csv', '_blank')}
+                    className="p-3 bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg text-sm hover:bg-indigo-200 w-full flex items-center justify-center gap-2 font-semibold"
+                  >
+                    <span>📥</span> Download Sample Brand CSV
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           {/* Header */}
@@ -905,6 +1046,7 @@ export default function ControlPage() {
                   <option value="round1">Round 1</option>
                   <option value="round2">Round 2</option>
                   <option value="round3">Round 3</option>
+                  <option value="brand">Brand Section</option>
                   <option value="final">Final</option>
                 </select>
               </div>
@@ -950,6 +1092,32 @@ export default function ControlPage() {
                       -500
                     </button>
                   </div>
+                  <div className="mt-2 flex space-x-2">
+                    <input
+                      type="number"
+                      placeholder="Add amount"
+                      className="w-full p-1 border rounded text-sm"
+                      value={manualScoreInputs[team.id] || ''}
+                      onChange={(e) => setManualScoreInputs({
+                        ...manualScoreInputs,
+                        [team.id]: e.target.value
+                      })}
+                      disabled={loading}
+                    />
+                    <button
+                      onClick={() => {
+                        const amount = parseInt(manualScoreInputs[team.id], 10);
+                        if (!isNaN(amount) && amount !== 0) {
+                          handleScoreChange(team.id, amount);
+                          setManualScoreInputs({ ...manualScoreInputs, [team.id]: '' });
+                        }
+                      }}
+                      className="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700 font-bold"
+                      disabled={loading || !manualScoreInputs[team.id]}
+                    >
+                      ADD
+                    </button>
+                  </div>
                 </div>
               ))}
 
@@ -966,28 +1134,92 @@ export default function ControlPage() {
           <div className="space-y-6">
 
             {/* Loaded Questions */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Question Bank</h2>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {loadedQuestions.length > 0 ? (
-                  loadedQuestions.map((question) => (
-                    <button
-                      key={question.id}
-                      onClick={() => handleSelectQuestion(question.id)}
-                      className={`w-full p-2 text-left rounded border ${gameState?.currentQuestion === question.id
-                        ? 'bg-blue-100 border-blue-500'
-                        : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
-                        }`}
-                      disabled={loading}
-                    >
-                      <div className="font-bold text-sm">{question.id}</div>
-                      <div className="text-xs text-gray-600 truncate">{question.text}</div>
-                    </button>
-                  ))
+            <div className="bg-white rounded-lg shadow-md mb-6 overflow-hidden">
+              {/* Bank Tabs */}
+              <div className="flex border-b">
+                <button
+                  className={`flex-1 py-3 font-bold text-center transition-colors ${activeBankTab === 'game' ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                  onClick={() => setActiveBankTab('game')}
+                >
+                  Game Questions
+                </button>
+                <button
+                  className={`flex-1 py-3 font-bold text-center transition-colors ${activeBankTab === 'brand' ? 'bg-purple-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                  onClick={() => setActiveBankTab('brand')}
+                >
+                  Brand Questions
+                </button>
+              </div>
+
+              <div className="p-6">
+                {activeBankTab === 'game' ? (
+                  <>
+                    <h2 className="text-xl font-bold mb-4">Question Bank</h2>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {loadedQuestions.length > 0 ? (
+                        loadedQuestions.map((question) => (
+                          <button
+                            key={question.id}
+                            onClick={() => handleSelectQuestion(question.id)}
+                            className={`w-full p-2 text-left rounded border ${gameState?.currentQuestion === question.id
+                              ? 'bg-blue-100 border-blue-500'
+                              : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
+                              }`}
+                            disabled={loading}
+                          >
+                            <div className="font-bold text-sm">{question.id}</div>
+                            <div className="text-xs text-gray-600 truncate">{question.text}</div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="text-center py-4 text-gray-500">
+                          No questions loaded yet. Upload CSV or add manually.
+                        </div>
+                      )}
+                    </div>
+                  </>
                 ) : (
-                  <div className="text-center py-4 text-gray-500">
-                    No questions loaded yet. Upload CSV or add manually.
-                  </div>
+                  <>
+                    <h2 className="text-xl font-bold mb-4">Brand Questions</h2>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {brandQuestions.length > 0 ? (
+                        brandQuestions.map((q) => (
+                          <button
+                            key={q.id}
+                            onClick={() => handleSelectBrandQuestion(q.id)}
+                            className={`w-full p-2 text-left rounded border ${gameState?.activeBrandQuestionId === q.id
+                              ? 'bg-purple-100 border-purple-500'
+                              : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
+                              }`}
+                            disabled={loading}
+                          >
+                            <div className="font-bold text-sm">{q.id}</div>
+                            <div className="text-xs text-gray-600 truncate">{q.text}</div>
+                            {gameState?.activeBrandQuestionId === q.id && (
+                              <div className="text-xs text-purple-600 font-bold mt-1">● ACTIVE</div>
+                            )}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="text-center py-4 text-gray-500">
+                          No brand questions loaded. Upload CSV.
+                        </div>
+                      )}
+                    </div>
+                    {gameState?.activeBrandQuestionId && (
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <button
+                          onClick={async () => {
+                            await gameStateManager.updateGameState({ activeBrandQuestionId: null });
+                          }}
+                          className="w-full p-2 bg-red-100 text-red-700 border border-red-300 rounded hover:bg-red-200 text-sm font-bold"
+                          disabled={loading}
+                        >
+                          CLEAR ACTIVE QUESTION
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -1604,6 +1836,8 @@ export default function ControlPage() {
                 )}
               </div>
             )}
+
+
           </div>
 
           {/* Right Column - Controls and Overlays */}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { gameStateManager } from '@/lib/gameState';
-import type { GameState, Question, Team } from '@/lib/gameState';
+import type { GameState, Question, Team, BrandQuestion } from '@/lib/gameState';
 import React from 'react';
 import { Bebas_Neue } from 'next/font/google';
 import confetti from 'canvas-confetti';
@@ -29,6 +29,7 @@ export default function DisplayPage() {
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
   const [teamSwitchers, setTeamSwitchers] = useState<Array<{ name: string; upiId: string; previousTeam: 'red' | 'green' | 'blue'; currentTeam: 'red' | 'green' | 'blue' }>>([]);
+  const [activeBrandQuestion, setActiveBrandQuestion] = useState<BrandQuestion | null>(null);
   const [scoreAnimation, setScoreAnimation] = useState<{ show: boolean; amount: number; team: string }>({
     show: false,
     amount: 0,
@@ -185,11 +186,16 @@ export default function DisplayPage() {
       gameStateManager.getTeamSwitchers().then(setTeamSwitchers).catch(console.error);
     });
 
+    const unsubscribeBrandQuestion = gameStateManager.subscribeToBrandQuestion((question) => {
+      setActiveBrandQuestion(question);
+    });
+
     return () => {
       unsubscribeGameState();
       unsubscribeTeams();
       unsubscribeQuestion();
       unsubscribeAudience();
+      unsubscribeBrandQuestion();
     };
   }, []);
 
@@ -367,6 +373,27 @@ export default function DisplayPage() {
       {/* Main Content */}
       <div className="p-8">
 
+        {/* BRAND SECTION DISPLAY */}
+        {gameState?.currentRound === 'brand' && (
+          <div className="max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+            {activeBrandQuestion ? (
+              <div className="text-center w-full animate-in fade-in zoom-in duration-500">
+                <div className="bg-gradient-to-r from-purple-900/80 to-indigo-900/80 border-4 border-purple-400 rounded-3xl p-16 shadow-2xl backdrop-blur-sm">
+                  <h2 className="text-6xl md:text-8xl font-bold text-white leading-tight filter drop-shadow-lg">
+                    {activeBrandQuestion.text}
+                  </h2>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center">
+                <div className="text-8xl mb-6 animate-pulse">✨</div>
+                <h2 className="text-5xl font-bold text-indigo-300 tracking-wider">BRAND ROUND</h2>
+                <p className="text-2xl text-indigo-200 mt-4 opacity-75">Get Ready...</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ROUND 2 SELECTION PHASE */}
         {gameState?.currentRound === 'round2' && round2Options.length > 0 && !gameState?.round2State && (
           <div className="max-w-7xl mx-auto">
@@ -384,7 +411,7 @@ export default function DisplayPage() {
         )}
 
         {/* STANDARD QUESTION DISPLAY (Round 1 & Round 2 Question/Reveal Phases) */}
-        {(!gameState?.round2State || gameState.round2State.phase !== 'selection') && (
+        {(!gameState?.round2State || gameState.round2State.phase !== 'selection') && gameState?.currentRound !== 'brand' && (
           currentQuestion ? (
             <div className="max-w-6xl mx-auto">
               {/* Question */}
