@@ -244,10 +244,17 @@ export default function DisplayPage() {
     teams.forEach((team) => {
       const prev = prevScoresRef.current[team.id] ?? 0;
       const diff = team.score - prev;
-      if (diff > 0) {
-        // Animate the amount added for this team
+      if (diff !== 0) {
+        // Animate the score change
         setScoreAnimation({ show: true, amount: diff, team: team.id });
         setTimeout(() => setScoreAnimation({ show: false, amount: 0, team: '' }), 3000);
+
+        // Play sound based on change direction
+        if (diff > 0) {
+          playSound(teamAnswerAudioRef);
+        } else {
+          playSound(bigXAudioRef);
+        }
       }
       // Update stored score
       prevScoresRef.current[team.id] = team.score;
@@ -650,17 +657,17 @@ export default function DisplayPage() {
       )}
 
       {/* Score Animation Overlay */}
-      {scoreAnimation.show && scoreAnimation.amount > 0 && ['red', 'green', 'blue', 'host', 'all'].includes(scoreAnimation.team) && (
+      {scoreAnimation.show && scoreAnimation.amount !== 0 && ['red', 'green', 'blue', 'host', 'all'].includes(scoreAnimation.team) && (
         <div className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center">
           <div className="relative">
             <div
               className="text-6xl md:text-8xl font-black animate-bounce drop-shadow-2xl"
-              style={{ color: TEAM_COLORS[scoreAnimation.team] }}
+              style={{ color: scoreAnimation.amount > 0 ? TEAM_COLORS[scoreAnimation.team] : '#ef4444' }}
             >
-              +{formatInr(scoreAnimation.amount)}
+              {scoreAnimation.amount > 0 ? '+' : ''}{formatInr(scoreAnimation.amount)}
             </div>
             <div className="absolute inset-0 bg-white text-black text-6xl md:text-8xl font-black animate-ping opacity-50">
-              +{formatInr(scoreAnimation.amount)}
+              {scoreAnimation.amount > 0 ? '+' : ''}{formatInr(scoreAnimation.amount)}
             </div>
           </div>
         </div>
