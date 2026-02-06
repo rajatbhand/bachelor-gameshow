@@ -55,6 +55,7 @@ export interface GameState {
     availableQuestionIds: string[];
     activeQuestionId: string | null;
     timerDuration: number;
+
   };
   round2Options?: string[]; // The three questions selected by operator for the round
   round2CurrentTeam?: 'red' | 'green' | 'blue' | null; // Which team is currently playing Round 2
@@ -919,6 +920,27 @@ export class GameStateManager {
   // ========== ROUND 1 GAMEPLAY METHODS ==========
 
   /**
+   * Start Pre-Show - Initialize Pre-Show state
+   */
+  async startPreShow(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
+      currentRound: 'pre-show',
+      // Reset common fields that might persist
+      round1CurrentGuessingTeam: null,
+      round2CurrentTeam: null,
+      activeTeam: null,
+      questionRevealed: true, // Visible for pre-show
+      revealMode: 'one-by-one',
+      // Ensure Round 2 options are cleared
+      round2Options: [],
+      round2State: null,
+      timerActive: false,
+      lastUpdated: serverTimestamp()
+    });
+  }
+
+  /**
    * Start Round 1 gameplay - initializes Round 1 state
    */
   async startRound1(): Promise<void> {
@@ -1085,6 +1107,7 @@ export class GameStateManager {
       round2CurrentTeam: null, // Initialize with no team selected
       round2UsedQuestionIds: [], // Initialize empty array for tracking
       // Reset common state
+      round1CurrentGuessingTeam: null, // Ensure Round 1 team selection is cleared
       currentQuestion: null,
       activeTeam: null,
       timerActive: false,
@@ -1108,6 +1131,7 @@ export class GameStateManager {
         await updateDoc(gameStateRef, {
           round2CurrentTeam: team,
           activeTeam: team, // Set activeTeam for scoring
+          round1CurrentGuessingTeam: null, // Double check: ensure Round 1 team is cleared
           lastUpdated: serverTimestamp()
         });
       }
@@ -1202,6 +1226,25 @@ export class GameStateManager {
     });
 
     return questions;
+  }
+
+  /**
+   * Start Round 3 - Initialize Round 3 state
+   */
+  async startRound3(): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    await updateDoc(gameStateRef, {
+      currentRound: 'round3',
+      round1CurrentGuessingTeam: null, // Clear any previous Round 1/Pre-show guessing team
+      round2CurrentTeam: null, // Clear any Round 2 team
+      activeTeam: null,
+      questionRevealed: true, // Questions visible by default in Round 3
+      revealMode: 'one-by-one',
+      // Ensure Round 2 options are cleared so they don't linger
+      round2Options: [],
+      round2State: null,
+      lastUpdated: serverTimestamp()
+    });
   }
 }
 

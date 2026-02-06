@@ -277,21 +277,38 @@ export default function DisplayPage() {
 
           {/* Team "IS GUESSING" Banner - Works for Pre-Show, Round 1, Round 2, Round 3 */}
           <div className="flex justify-center">
-            {(['pre-show', 'round1', 'round2', 'round3'].includes(gameState?.currentRound || '')) &&
-              (gameState?.round1CurrentGuessingTeam || gameState?.round2CurrentTeam) && (
+            {(() => {
+              let activeTeamId: string | null = null;
+
+              if (gameState?.currentRound === 'round1') {
+                activeTeamId = gameState.round1CurrentGuessingTeam;
+              } else if (gameState?.currentRound === 'round2') {
+                activeTeamId = gameState.round2CurrentTeam || null;
+              } else if (gameState?.currentRound === 'pre-show' || gameState?.currentRound === 'round3') {
+                // fall back to round1CurrentGuessingTeam as it's used for generic "guessing"
+                activeTeamId = gameState.round1CurrentGuessingTeam;
+              }
+
+              if (!activeTeamId) return null;
+
+              const team = teams.find(t => t.id === activeTeamId);
+              if (!team) return null;
+
+              return (
                 <div className="flex justify-center">
                   <div
                     className="px-8 py-2 rounded-lg shadow-2xl animate-pulse"
                     style={{
-                      backgroundColor: teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.color || '#6b21a8'
+                      backgroundColor: team.color || '#6b21a8'
                     }}
                   >
                     <div className="text-white text-4xl font-bold tracking-wide">
-                      🎤 {teams.find(t => t.id === (gameState.round1CurrentGuessingTeam || gameState.round2CurrentTeam))?.name.toUpperCase()} IS PLAYING
+                      🎤 {team.name.toUpperCase()} IS PLAYING
                     </div>
                   </div>
                 </div>
-              )}
+              );
+            })()}
           </div>
 
           <div className="flex space-x-8">

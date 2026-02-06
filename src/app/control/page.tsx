@@ -1031,10 +1031,14 @@ export default function ControlPage() {
                   value={gameState?.currentRound || 'pre-show'}
                   onChange={(e) => {
                     const newRound = e.target.value;
-                    if (newRound === 'round1') {
+                    if (newRound === 'pre-show') {
+                      gameStateManager.startPreShow();
+                    } else if (newRound === 'round1') {
                       handleStartRound1();
                     } else if (newRound === 'round2') {
                       gameStateManager.startRound2();
+                    } else if (newRound === 'round3') {
+                      gameStateManager.startRound3();
                     } else {
                       handleUpdateGameState({ currentRound: newRound as GameState['currentRound'] });
                     }
