@@ -876,11 +876,11 @@ export default function ControlPage() {
   };
 
   // Password authentication handler
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
 
-    const success = authenticate(password);
+    const success = await authenticate(password);
     if (!success) {
       setAuthError('Incorrect password. Please try again.');
       setPassword('');

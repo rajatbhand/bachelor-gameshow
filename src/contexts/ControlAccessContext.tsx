@@ -4,13 +4,23 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 
 interface ControlAccessContextType {
     isAuthenticated: boolean;
-    authenticate: (password: string) => boolean;
+    authenticate: (password: string) => Promise<boolean>;
     logout: () => void;
 }
 
 const ControlAccessContext = createContext<ControlAccessContextType | undefined>(undefined);
 
 const SESSION_KEY = 'control_panel_authenticated';
+
+// SHA-256 hash of the correct password — the actual password is never in the bundle
+const PASSWORD_HASH = '1d24bf71a3bfc2f0cb03743f52c76cdecdb39512843615edb9d0413ec1025d0d';
+
+async function sha256(message: string): Promise<string> {
+    const msgBuffer = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 export function ControlAccessProvider({ children }: { children: React.ReactNode }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -28,15 +38,10 @@ export function ControlAccessProvider({ children }: { children: React.ReactNode 
         setIsInitialized(true);
     }, []);
 
-    const authenticate = (password: string): boolean => {
-        const correctPassword = process.env.NEXT_PUBLIC_CONTROL_PASSWORD;
+    const authenticate = async (password: string): Promise<boolean> => {
+        const inputHash = await sha256(password);
 
-        if (!correctPassword) {
-            console.error('NEXT_PUBLIC_CONTROL_PASSWORD is not set in environment variables');
-            return false;
-        }
-
-        if (password === correctPassword) {
+        if (inputHash === PASSWORD_HASH) {
             setIsAuthenticated(true);
             if (typeof window !== 'undefined') {
                 sessionStorage.setItem(SESSION_KEY, 'true');
