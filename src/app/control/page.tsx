@@ -274,92 +274,60 @@ export default function ControlPage() {
   };
 
   // Utility function to export audience data to CSV
-  const exportAudienceToCSV = async (): Promise<boolean> => {
-    try {
-      console.log('Exporting audience data to CSV...');
+  // Fetch audience data (async) then trigger a synchronous download.
+  // Must be called as: const members = await fetchAudienceForDownload();
+  // then call triggerAudienceDownload(members) synchronously.
+  const fetchAudienceForDownload = async () => {
+    return await gameStateManager.getAudienceMembers();
+  };
 
-      // Get current audience members
-      const members = await gameStateManager.getAudienceMembers();
-
-      if (members.length === 0) {
-        console.log('No audience data to export');
-        return true; // No data is not an error
-      }
-
-      // Create CSV headers
-      const headers = ['Name', 'Phone', 'UPI ID', 'Team', 'Voting Round', 'Auth Email', 'Device ID', 'Timestamp'];
-
-      // Create CSV rows
-      const rows = members.map(member => [
-        member.name || '',
-        member.phone || '',
-        member.upiId || '',
-        member.team || '',
-        member.votingRound || '1',
-        member.authEmail || '',
-        member.deviceId || '',
-        member.submittedAt ? new Date(member.submittedAt as any).toISOString() : ''
-      ]);
-
-      // Combine headers and rows
-      const csvContent = [
-        headers.join(','),
-        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-      ].join('\n');
-
-      // Create and download CSV file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
-      const filename = `audience-votes-backup-${timestamp}.csv`;
-
-      link.setAttribute('href', url);
-      link.setAttribute('download', filename);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      console.log(`Exported ${members.length} audience members to ${filename}`);
-      return true;
-    } catch (error) {
-      console.error('Error exporting audience data:', error);
-      return false;
-    }
+  const triggerAudienceDownload = (members: Awaited<ReturnType<typeof gameStateManager.getAudienceMembers>>) => {
+    if (members.length === 0) return;
+    const csv = gameStateManager.exportAudienceToCSV(members);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    const timestamp = new Date().toISOString().split('T')[0];
+    link.download = `audience-votes-${timestamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    console.log(`Downloaded CSV for ${members.length} audience members.`);
   };
 
   const handleResetGame = async () => {
     // First confirmation
     if (!confirm('Are you sure you want to reset the entire game?')) return;
 
-    // Auto-export audience data before reset
-    console.log('Auto-exporting audience data before reset...');
-    const exportSuccess = await exportAudienceToCSV();
-
-    if (exportSuccess) {
-      alert('Audience data has been exported to CSV for backup. The reset will now proceed.');
-    } else {
-      const proceedAnyway = confirm('Warning: Failed to export audience data. Do you still want to proceed with the reset? This will permanently delete all audience votes!');
-      if (!proceedAnyway) return;
+    // Fetch audience data FIRST (async is safe here, before any download trigger)
+    let members: Awaited<ReturnType<typeof gameStateManager.getAudienceMembers>> = [];
+    try {
+      members = await fetchAudienceForDownload();
+      console.log(`Fetched ${members.length} audience members for backup.`);
+    } catch (e) {
+      console.error('Could not fetch audience data before reset:', e);
     }
 
-    // Final confirmation with clear warning
-    const finalConfirm = confirm('FINAL CONFIRMATION: This will permanently delete all audience votes, reset scores, and clear game state. Continue?');
+    // Final confirmation — user clicking OK acts as a fresh gesture for the download
+    const finalConfirm = confirm(
+      members.length > 0
+        ? `FINAL CONFIRMATION: This will permanently delete ${members.length} audience votes, reset scores, and clear game state. A CSV backup will download automatically. Continue?`
+        : 'FINAL CONFIRMATION: This will reset scores and clear game state. Continue?'
+    );
     if (!finalConfirm) return;
+
+    // Trigger download SYNCHRONOUSLY right after confirm click — browser allows this
+    if (members.length > 0) {
+      triggerAudienceDownload(members);
+    }
 
     setLoading(true);
     try {
       console.log('Control: Starting game reset...');
       await gameStateManager.resetGame();
-
-      // Force clear current question state
       setCurrentQuestion(null);
-
-      // The onSnapshot listener in useEffect will automatically refresh questions
-      console.log('Control: Game reset completed, questions refreshed');
-      alert('Game reset complete! Audience data was exported before reset.');
+      console.log('Control: Game reset completed.');
+      alert(members.length > 0 ? 'Game reset complete! Audience CSV was downloaded automatically.' : 'Game reset complete!');
     } catch (error) {
       console.error('Error resetting game:', error);
       alert('Error during game reset. Check console for details.');
@@ -2020,10 +1988,16 @@ export default function ControlPage() {
               <h2 className="text-xl font-bold mb-4">Export Audience Data</h2>
               <button
                 onClick={async () => {
-                  const success = await exportAudienceToCSV();
-                  if (success) {
-                    alert('Audience data exported successfully!');
-                  } else {
+                  try {
+                    // Fetch data first (async), then download synchronously
+                    const members = await fetchAudienceForDownload();
+                    if (members.length === 0) {
+                      alert('No audience data to export yet.');
+                      return;
+                    }
+                    triggerAudienceDownload(members);
+                    alert(`Exported ${members.length} audience members successfully!`);
+                  } catch (e) {
                     alert('Failed to export audience data. Check console for details.');
                   }
                 }}
