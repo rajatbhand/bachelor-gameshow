@@ -784,7 +784,7 @@ export default function ControlPage() {
 
   // ========== ROUND 2 HANDLERS ==========
   const handleRound2SelectOptions = async () => {
-    if (round2Selection.length !== 3) {
+    if (round2Selection.length < 2) {
       alert('Please select exactly 3 questions.');
       return;
     }
@@ -1618,10 +1618,10 @@ export default function ControlPage() {
                     <div className="space-y-3">
                       <div className="flex justify-between items-end mb-2">
                         <div className="text-sm font-semibold text-gray-700">
-                          Step 1: Select 3 Questions for Round 2
+                          Step 1: Select Questions for Round 2
                         </div>
-                        <div className={`text-xs font-bold ${round2Selection.length === 3 ? 'text-green-600' : 'text-gray-500'}`}>
-                          {round2Selection.length}/3 Selected
+                        <div className={`text-xs font-bold ${round2Selection.length >= 2 ? 'text-green-600' : 'text-gray-500'}`}>
+                          {round2Selection.length}/2 Selected
                         </div>
                       </div>
 
@@ -1636,7 +1636,7 @@ export default function ControlPage() {
                                   checked={round2Selection.includes(q.id)}
                                   onChange={(e) => {
                                     if (e.target.checked) {
-                                      if (round2Selection.length < 3) {
+                                      {
                                         setRound2Selection([...round2Selection, q.id]);
                                       }
                                     } else {
@@ -1667,7 +1667,7 @@ export default function ControlPage() {
                           }
                         }}
                         className="w-full p-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                        disabled={loading || round2Selection.length !== 3}
+                        disabled={loading || round2Selection.length < 2}
                       >
                         SET THESE 3 QUESTIONS FOR ROUND 2
                       </button>

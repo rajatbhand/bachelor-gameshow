@@ -1154,7 +1154,7 @@ export class GameStateManager {
       const availableQuestions = questionIds.filter(id => !usedQuestions.includes(id));
 
       await updateDoc(gameStateRef, {
-        'round2State.availableQuestionIds': availableQuestions.slice(0, 3), // Take first 3 available
+        'round2State.availableQuestionIds': availableQuestions, // Take first 3 available
         'round2State.phase': 'selection',
         lastUpdated: serverTimestamp()
       });
