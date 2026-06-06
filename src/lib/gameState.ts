@@ -64,6 +64,8 @@ export interface GameState {
   showEndScreen: boolean; // Whether to show the end show thank you screen
   // Brand Section State
   activeBrandQuestionId?: string | null;
+  // Round 3 prize bucket (accumulated from wrong-answer penalties)
+  round3BucketTotal?: number;
 }
 
 export interface Team {
@@ -390,25 +392,7 @@ export class GameStateManager {
       const answerToReveal = question.answers.find(answer => answer.id === answerId);
 
       if (answerToReveal) {
-        // ROUND 3 SPECIAL LOGIC: Check if this is the 7th (last) reveal
-        const gameStateRef = doc(db, 'gameState', 'current');
-        const gameStateDoc = await getDoc(gameStateRef);
         let finalValue = manualAmount !== undefined ? manualAmount : answerToReveal.value;
-
-        if (gameStateDoc.exists()) {
-          const gameState = gameStateDoc.data() as GameState;
-
-          // If Round 3 with 7 answers, enforce 6000 for the last reveal
-          if (gameState.currentRound === 'round3' && question.answers.length === 7) {
-            const currentRevealedCount = question.answers.filter(a => a.revealed).length;
-
-            // If this is the 7th reveal (6 already revealed), enforce 6000
-            if (currentRevealedCount === 6) {
-              finalValue = 6000;
-              console.log('Round 3: Last answer revealed - enforcing value of 6000');
-            }
-          }
-        }
 
         const updatedAnswers = question.answers.map(answer => {
           if (answer.id === answerId) {
@@ -417,7 +401,7 @@ export class GameStateManager {
               revealed: true,
               attribution,
               revealedAt: new Date().toISOString(),
-              value: finalValue // Will be 6000 if this is the 7th reveal in Round 3
+              value: finalValue
             };
           }
           return answer;

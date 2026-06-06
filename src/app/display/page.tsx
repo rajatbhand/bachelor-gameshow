@@ -278,7 +278,20 @@ export default function DisplayPage() {
   return (
     <div className={`min-h-screen bg-gray-900 text-white ${bebas.className}`}>
       {/* Header with Round and Teams */}
-      <div className="bg-gray-800 p-4">
+      <div className="bg-gray-800 p-4 relative">
+        {!gameState?.scorecardOverlay && scoreAnimation.show && scoreAnimation.amount !== 0 && (() => {
+          const animTeam = teams.find(t => t.id === scoreAnimation.team);
+          return (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+              <span
+                className="text-4xl font-black animate-bounce drop-shadow-2xl"
+                style={{ color: scoreAnimation.amount > 0 ? (animTeam?.color ?? '#22c55e') : '#ef4444' }}
+              >
+                {scoreAnimation.amount > 0 ? '+' : ''}{formatInr(scoreAnimation.amount)}
+              </span>
+            </div>
+          );
+        })()}
         <div className="flex justify-between items-center">
 
           {/* Team "IS GUESSING" Banner - Works for Pre-Show, Round 1, Round 2, Round 3 */}
@@ -317,20 +330,7 @@ export default function DisplayPage() {
             })()}
           </div>
 
-          <div className="relative flex space-x-8">
-            {!gameState?.scorecardOverlay && scoreAnimation.show && scoreAnimation.amount !== 0 && (() => {
-              const animTeam = teams.find(t => t.id === scoreAnimation.team);
-              return (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                  <span
-                    className="text-3xl font-black animate-bounce drop-shadow-2xl"
-                    style={{ color: scoreAnimation.amount > 0 ? (animTeam?.color ?? '#22c55e') : '#ef4444' }}
-                  >
-                    {scoreAnimation.amount > 0 ? '+' : ''}{formatInr(scoreAnimation.amount)}
-                  </span>
-                </div>
-              );
-            })()}
+          <div className="flex space-x-8">
             {teams.map((team) => (
               <div key={team.id} className="text-center">
                 <div className="flex items-center justify-between">
@@ -487,35 +487,63 @@ export default function DisplayPage() {
               {/* Answers Grid */}
               {(gameState?.questionRevealed || (gameState?.revealMode === 'all-at-once' && gameState?.guessMode)) && (
                 <div className={`grid grid-cols-3 gap-4 ${currentQuestion.answerCount === 7 ? '[&>*:last-child]:col-start-2' : ''}`}>
-                  {currentQuestion.answers.slice(0, currentQuestion.answerCount).map((answer, index) => (
-                    <div
-                      key={answer.id}
-                      className="relative h-32 bg-gray-800 border-4 rounded-lg shadow-xl transition-all duration-500"
-                      style={{
-                        borderColor: answer.revealed
-                          ? (gameState?.revealMode === 'all-at-once'
-                            ? '#6b7280' // Neutral gray for all-at-once mode
-                            : (answer.attribution === 'red' ? '#ef4444' :
-                              answer.attribution === 'green' ? '#22c55e' :
-                                answer.attribution === 'blue' ? '#3b82f6' :
-                                  answer.attribution === 'host' ? '#6b7280' : '#6b7280'))
-                          : '#4B5563'
-                      }}
-                    >
-                      <div className="absolute inset-0 flex items-center justify-center p-4">
-                        {answer.revealed ? (
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-white">{answer.text}</div>
-                            {answer.attribution !== 'neutral' && (
-                              <div className="text-lg font-semibold text-green-400">₹{answer.value.toLocaleString()}</div>
+                  {(() => {
+                    const base = currentQuestion.answers.slice(0, currentQuestion.answerCount);
+                    let sorted = base;
+                    if (gameState?.currentRound === 'round3') {
+                      // Revealed answers fill boxes left-to-right in reveal order;
+                      // unrevealed answers sit at the end so the last one is always in box 7.
+                      const revealed = base
+                        .filter(a => a.revealed)
+                        .sort((a, b) => {
+                          const aT = a.revealedAt ? new Date(a.revealedAt as string).getTime() : 0;
+                          const bT = b.revealedAt ? new Date(b.revealedAt as string).getTime() : 0;
+                          return aT - bT;
+                        });
+                      const unrevealed = base.filter(a => !a.revealed);
+                      sorted = [...revealed, ...unrevealed];
+                    }
+                    const lastIndex = sorted.length - 1;
+                    return sorted.map((answer, index) => {
+                      const isLastBox = gameState?.currentRound === 'round3' && index === lastIndex && !answer.revealed;
+                      const bucketTotal = gameState?.round3BucketTotal ?? 0;
+                      return (
+                        <div
+                          key={answer.id}
+                          className="relative h-32 bg-gray-800 border-4 rounded-lg shadow-xl transition-all duration-500"
+                          style={{
+                            borderColor: answer.revealed
+                              ? (gameState?.revealMode === 'all-at-once'
+                                ? '#6b7280'
+                                : (answer.attribution === 'red' ? '#ef4444' :
+                                  answer.attribution === 'green' ? '#22c55e' :
+                                    answer.attribution === 'blue' ? '#3b82f6' : '#6b7280'))
+                              : isLastBox ? '#eab308' : '#4B5563'
+                          }}
+                        >
+                          <div className="absolute inset-0 flex items-center justify-center p-4">
+                            {answer.revealed ? (
+                              <div className="text-center">
+                                <div className="text-2xl font-bold text-white">{answer.text}</div>
+                                {answer.attribution !== 'neutral' && (
+                                  <div className="text-lg font-semibold text-green-400">₹{answer.value.toLocaleString()}</div>
+                                )}
+                              </div>
+                            ) : isLastBox ? (
+                              <div className="text-center">
+                                <div className="text-sm font-bold text-yellow-400 tracking-widest uppercase">Prize Bucket</div>
+                                <div className="text-3xl font-black text-yellow-300">
+                                  ₹{bucketTotal.toLocaleString()}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-4xl font-bold text-gray-400">?</div>
                             )}
                           </div>
-                        ) : (
-                          <div className="text-4xl font-bold text-gray-400">?</div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </div>

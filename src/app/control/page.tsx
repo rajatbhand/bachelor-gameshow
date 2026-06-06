@@ -51,6 +51,8 @@ export default function ControlPage() {
 
   const [round2ManualScores, setRound2ManualScores] = useState<{ [key: string]: number }>({});
   const [round2TimerDuration, setRound2TimerDuration] = useState<string>('90');
+  const [round3PenaltyAmount, setRound3PenaltyAmount] = useState<string>('1000');
+  const [round3BucketTotal, setRound3BucketTotal] = useState<string>('0');
   const [episodeInfo, setEpisodeInfo] = useState('');
   const [manualScoreInputs, setManualScoreInputs] = useState<{ [key: string]: string }>({ red: '', green: '', blue: '' });
 
@@ -661,29 +663,38 @@ export default function ControlPage() {
           setLoading(false);
           return;
         }
-        const manualAmount = round1TeamAmounts[gameState.round1CurrentGuessingTeam] || 0;
+        const unrevealedCount = currentQuestion.answers
+          .slice(0, currentQuestion.answerCount)
+          .filter(a => !a.revealed).length;
+        const isRound3LastAnswer = gameState?.currentRound === 'round3' && unrevealedCount === 1;
+        const manualAmount = isRound3LastAnswer
+          ? (parseInt(round3BucketTotal) || 0)
+          : (round1TeamAmounts[gameState.round1CurrentGuessingTeam] || 0);
         await gameStateManager.evaluateRound1Guess(
           true,
           round1SelectedAnswer,
           manualAmount > 0 ? manualAmount : undefined
         );
         await playTeamAnswerSound();
-        setRound1SelectedAnswer(''); // Reset selection
+        setRound1SelectedAnswer('');
       } else {
-        // Wrong answer - evaluate and show X
+        // Wrong answer in round3: deduct penalty from team and add to bucket
+        if (gameState?.currentRound === 'round3' && gameState?.round1CurrentGuessingTeam) {
+          const penalty = parseInt(round3PenaltyAmount) || 0;
+          if (penalty > 0) {
+            const newBucket = (parseInt(round3BucketTotal) || 0) + penalty;
+            await gameStateManager.updateTeamScore(gameState.round1CurrentGuessingTeam, -penalty);
+            await gameStateManager.updateGameState({ round3BucketTotal: newBucket });
+            setRound3BucketTotal(String(newBucket));
+          }
+        }
+
         await gameStateManager.evaluateRound1Guess(false);
 
-        // Show the big X overlay
-        await gameStateManager.updateGameState({
-          bigX: true
-        });
-
-        // Auto-clear the big X after 5 seconds
+        await gameStateManager.updateGameState({ bigX: true });
         setTimeout(async () => {
           try {
-            await gameStateManager.updateGameState({
-              bigX: false
-            });
+            await gameStateManager.updateGameState({ bigX: false });
           } catch (error) {
             console.error('Error clearing big X:', error);
           }
@@ -1494,6 +1505,54 @@ export default function ControlPage() {
                           })()}
                         </select>
                       </div>
+
+                      {/* Round 3 penalty / bucket controls */}
+                      {gameState?.currentRound === 'round3' && (() => {
+                        const question = loadedQuestions.find(q => q.id === gameState?.currentQuestion);
+                        const unrevealedCount = question?.answers.slice(0, question?.answerCount).filter(a => !a.revealed).length ?? 0;
+                        const isLastAnswer = unrevealedCount === 1;
+                        return (
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                            <div className="flex items-center gap-2">
+                              <label className="text-sm font-semibold text-blue-800 whitespace-nowrap">Penalty per wrong (₹):</label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={round3PenaltyAmount}
+                                onChange={(e) => setRound3PenaltyAmount(e.target.value)}
+                                className="w-full p-1 border border-blue-300 rounded text-center font-bold text-blue-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <label className="text-sm font-semibold text-blue-800 whitespace-nowrap">Prize bucket (₹):</label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={round3BucketTotal}
+                                  onChange={(e) => setRound3BucketTotal(e.target.value)}
+                                  className="w-24 p-1 border border-blue-300 rounded text-center font-bold text-blue-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  setRound3BucketTotal('0');
+                                  await gameStateManager.updateGameState({ round3BucketTotal: 0 });
+                                }}
+                                className="text-xs text-red-600 hover:underline font-semibold"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                            {isLastAnswer && (
+                              <div className="mt-1 p-2 bg-yellow-100 border border-yellow-400 rounded text-center">
+                                <span className="text-xs font-semibold text-yellow-800">CORRECT will award </span>
+                                <span className="text-lg font-black text-yellow-900">₹{(parseInt(round3BucketTotal) || 0).toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {gameState?.round1CurrentGuessingTeam && (
                         <div className="grid grid-cols-2 gap-2">
