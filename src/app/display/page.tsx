@@ -66,12 +66,14 @@ export default function DisplayPage() {
   const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
   const teamAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
   const hostAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const timerEndAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     // Initialize audio elements on the client
     bigXAudioRef.current = new Audio('/sounds/big-x.mp3');
     teamAnswerAudioRef.current = new Audio('/sounds/team-answer-reveal.mp3');
     hostAnswerAudioRef.current = new Audio('/sounds/host-answer-reveal.mp3');
+    timerEndAudioRef.current = new Audio('/sounds/timer-end.mp3');
 
     // Preload audio files for instant playback
     const preloadAudio = async () => {
@@ -79,6 +81,7 @@ export default function DisplayPage() {
         if (bigXAudioRef.current) await bigXAudioRef.current.load();
         if (teamAnswerAudioRef.current) await teamAnswerAudioRef.current.load();
         if (hostAnswerAudioRef.current) await hostAnswerAudioRef.current.load();
+        if (timerEndAudioRef.current) await timerEndAudioRef.current.load();
       } catch (error) {
         console.log('Display Audio: Could not preload sounds. They will load on first play.');
       }
@@ -138,6 +141,10 @@ export default function DisplayPage() {
         if (remaining === 0) {
           setTimesUp(true);
           if (timerRef.current) clearInterval(timerRef.current);
+          if (timerEndAudioRef.current) {
+            timerEndAudioRef.current.currentTime = 0;
+            timerEndAudioRef.current.play().catch(() => {});
+          }
         }
       }, 250); // Check 4 times a second for accuracy
     } else {
@@ -151,14 +158,6 @@ export default function DisplayPage() {
     };
   }, [gameState?.timerActive, gameState?.timerStartTime, gameState?.timerDuration]);
 
-  // Team colors mapping
-  const TEAM_COLORS: { [key: string]: string } = {
-    'red': '#ef4444', // red
-    'green': '#22c55e', // green
-    'blue': '#3b82f6', // blue
-    'host': '#6b7280', // host (gray)
-    'all': '#22c55e' // default green for total score
-  };
 
   // Format INR currency
   const formatInr = (amount: number) => {
@@ -318,21 +317,32 @@ export default function DisplayPage() {
             })()}
           </div>
 
-          <div className="flex space-x-8">
-            {teams.map((team) => {
+          <div className="relative flex space-x-8">
+            {!gameState?.scorecardOverlay && scoreAnimation.show && scoreAnimation.amount !== 0 && (() => {
+              const animTeam = teams.find(t => t.id === scoreAnimation.team);
               return (
-                <div key={team.id} className="text-center">
-                  <div className="flex items-center justify-between">
-                    <div className="text-3xl font-bold tracking-wide" style={{ color: team.color }}>{team.name}</div>
-                    <div className="text-3xl font-bold tracking-wide ml-8">₹{team.score.toLocaleString()}</div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-2xl tracking-wide text-gray-400">Dugout:</div>
-                    <div className="text-2xl font-bold tracking-wide ml-12">{team.dugoutCount}</div>
-                  </div>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                  <span
+                    className="text-3xl font-black animate-bounce drop-shadow-2xl"
+                    style={{ color: scoreAnimation.amount > 0 ? (animTeam?.color ?? '#22c55e') : '#ef4444' }}
+                  >
+                    {scoreAnimation.amount > 0 ? '+' : ''}{formatInr(scoreAnimation.amount)}
+                  </span>
                 </div>
               );
-            })}
+            })()}
+            {teams.map((team) => (
+              <div key={team.id} className="text-center">
+                <div className="flex items-center justify-between">
+                  <div className="text-3xl font-bold tracking-wide" style={{ color: team.color }}>{team.name}</div>
+                  <div className="text-3xl font-bold tracking-wide ml-8">₹{team.score.toLocaleString()}</div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-2xl tracking-wide text-gray-400">Dugout:</div>
+                  <div className="text-2xl font-bold tracking-wide ml-12">{team.dugoutCount}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -496,7 +506,9 @@ export default function DisplayPage() {
                         {answer.revealed ? (
                           <div className="text-center">
                             <div className="text-2xl font-bold text-white">{answer.text}</div>
-                            <div className="text-lg font-semibold text-green-400">₹{answer.value.toLocaleString()}</div>
+                            {answer.attribution !== 'neutral' && (
+                              <div className="text-lg font-semibold text-green-400">₹{answer.value.toLocaleString()}</div>
+                            )}
                           </div>
                         ) : (
                           <div className="text-4xl font-bold text-gray-400">?</div>
@@ -568,8 +580,19 @@ export default function DisplayPage() {
                   blue: '#3b82f6'
                 };
 
+                const isAnimating = scoreAnimation.show && scoreAnimation.team === team.id && scoreAnimation.amount !== 0;
                 return (
-                  <div key={team.id} className="text-center bg-gray-800 rounded-lg p-6">
+                  <div key={team.id} className="relative text-center bg-gray-800 rounded-lg p-6 overflow-hidden">
+                    {isAnimating && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 bg-black bg-opacity-60 rounded-lg">
+                        <span
+                          className="text-6xl font-black animate-bounce drop-shadow-2xl"
+                          style={{ color: scoreAnimation.amount > 0 ? team.color : '#ef4444' }}
+                        >
+                          {scoreAnimation.amount > 0 ? '+' : ''}{formatInr(scoreAnimation.amount)}
+                        </span>
+                      </div>
+                    )}
                     <div className='flex items-end justify-between mb-4'>
                       <div className="text-4xl font-bold tracking-wide" style={{ color: team.color }}>
                         {team.name.toUpperCase()}
@@ -656,22 +679,6 @@ export default function DisplayPage() {
         </div>
       )}
 
-      {/* Score Animation Overlay */}
-      {scoreAnimation.show && scoreAnimation.amount !== 0 && ['red', 'green', 'blue', 'host', 'all'].includes(scoreAnimation.team) && (
-        <div className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center">
-          <div className="relative">
-            <div
-              className="text-6xl md:text-8xl font-black animate-bounce drop-shadow-2xl"
-              style={{ color: scoreAnimation.amount > 0 ? TEAM_COLORS[scoreAnimation.team] : '#ef4444' }}
-            >
-              {scoreAnimation.amount > 0 ? '+' : ''}{formatInr(scoreAnimation.amount)}
-            </div>
-            <div className="absolute inset-0 bg-white text-black text-6xl md:text-8xl font-black animate-ping opacity-50">
-              {scoreAnimation.amount > 0 ? '+' : ''}{formatInr(scoreAnimation.amount)}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Timer Bar */}
       {gameState?.timerActive && (

@@ -50,6 +50,7 @@ export default function ControlPage() {
   const [round2Selection, setRound2Selection] = useState<string[]>([]);
 
   const [round2ManualScores, setRound2ManualScores] = useState<{ [key: string]: number }>({});
+  const [round2TimerDuration, setRound2TimerDuration] = useState<string>('90');
   const [episodeInfo, setEpisodeInfo] = useState('');
   const [manualScoreInputs, setManualScoreInputs] = useState<{ [key: string]: string }>({ red: '', green: '', blue: '' });
 
@@ -336,7 +337,12 @@ export default function ControlPage() {
     }
   };
 
+  const playQuestionSelectionSFX = () => {
+    new Audio('/sounds/question-selection.mp3').play().catch(() => {});
+  };
+
   const handleSelectQuestion = async (questionId: string) => {
+    playQuestionSelectionSFX();
     // When selecting a question, reset to initial state
     // In Round 1, Round 3, and Pre-Show, questions should be revealed by default
     const shouldRevealQuestion = ['round1', 'round3', 'pre-show'].includes(gameState?.currentRound || '');
@@ -416,6 +422,7 @@ export default function ControlPage() {
   };
 
   const handleSelectBrandQuestion = async (questionId: string) => {
+    playQuestionSelectionSFX();
     setLoading(true);
     try {
       await gameStateManager.updateGameState({
@@ -768,6 +775,7 @@ export default function ControlPage() {
   };
 
   const handleRound2SelectQuestion = async (questionId: string) => {
+    playQuestionSelectionSFX();
     setLoading(true);
     try {
       await gameStateManager.selectRound2Question(questionId);
@@ -782,7 +790,7 @@ export default function ControlPage() {
   const handleRound2StartTimer = async () => {
     setLoading(true);
     try {
-      await gameStateManager.startRound2Timer(); // 60 seconds for Round 2
+      await gameStateManager.startRound2Timer(parseInt(round2TimerDuration) || 90);
       console.log('Control: Round 2 timer started');
     } catch (error) {
       console.error('Error starting Round 2 timer:', error);
@@ -1712,16 +1720,25 @@ export default function ControlPage() {
                 {(gameState.round2State?.phase === 'question' || gameState.round2State?.phase === 'reveal') && currentQuestion && (
                   <div className="space-y-3">
                     {/* Timer Control */}
-                    <div>
+                    <div className="flex gap-2">
                       <button
                         onClick={gameState.timerActive ? handleRound2StopTimer : handleRound2StartTimer}
-                        className={`w-full p-2 rounded-lg font-bold text-xl shadow-sm transition-all flex items-center justify-center space-x-2 ${gameState.timerActive
+                        className={`w-[60%] p-2 rounded-lg font-bold text-xl shadow-sm transition-all flex items-center justify-center ${gameState.timerActive
                           ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse'
                           : 'bg-green-600 text-white hover:bg-green-700'
                           }`}
                       >
-                        <span>{gameState.timerActive ? 'STOP TIMER' : 'START 60s TIMER'}</span>
+                        {gameState.timerActive ? 'STOP TIMER' : `START ${round2TimerDuration}s TIMER`}
                       </button>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={round2TimerDuration}
+                        onChange={(e) => setRound2TimerDuration(e.target.value)}
+                        disabled={gameState.timerActive}
+                        className="w-[40%] p-2 rounded bg-white text-gray-900 border border-gray-300 text-center text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                        placeholder="90"
+                      />
                     </div>
 
                     {/* Answers & Scoring */}

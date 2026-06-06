@@ -226,13 +226,15 @@ export class GameStateManager {
   // Listen to teams changes
   subscribeToTeams(callback: (teams: Team[]) => void): () => void {
     const teamsRef = collection(db, 'teams');
-    const q = query(teamsRef, orderBy('id'));
+    const q = query(teamsRef);
+    const teamOrder = ['green', 'blue', 'red'];
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const teams: Team[] = [];
       querySnapshot.forEach((docSnapshot) => {
         teams.push(docSnapshot.data() as Team);
       });
+      teams.sort((a, b) => teamOrder.indexOf(a.id) - teamOrder.indexOf(b.id));
       callback(teams);
     });
 
@@ -1184,12 +1186,12 @@ export class GameStateManager {
   /**
  * Start Round 2 Timer (60s)
  */
-  async startRound2Timer(): Promise<void> {
+  async startRound2Timer(duration: number = 90): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
     await updateDoc(gameStateRef, {
       timerActive: true,
       timerStartTime: Date.now(),
-      timerDuration: 90,
+      timerDuration: duration,
       lastUpdated: serverTimestamp()
     });
   }
