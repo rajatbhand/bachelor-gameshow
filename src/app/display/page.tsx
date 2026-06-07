@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Image from 'next/image';
 import { gameStateManager } from '@/lib/gameState';
-import type { GameState, Question, Team, BrandQuestion } from '@/lib/gameState';
+import type { GameState, Question, Team, BrandQuestion, AudienceMember } from '@/lib/gameState';
 import React from 'react';
 import { Bebas_Neue } from 'next/font/google';
 import confetti from 'canvas-confetti';
@@ -27,7 +28,7 @@ export default function DisplayPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
-  const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
+  const [audienceMembers, setAudienceMembers] = useState<AudienceMember[]>([]);
   const [teamSwitchers, setTeamSwitchers] = useState<Array<{ name: string; upiId: string; previousTeam: 'red' | 'green' | 'blue'; currentTeam: 'red' | 'green' | 'blue' }>>([]);
   const [activeBrandQuestion, setActiveBrandQuestion] = useState<BrandQuestion | null>(null);
   const [scoreAnimation, setScoreAnimation] = useState<{ show: boolean; amount: number; team: string }>({
@@ -89,7 +90,7 @@ export default function DisplayPage() {
         if (timerStartAudioRef.current) await timerStartAudioRef.current.load();
         if (endGameAudioRef.current) await endGameAudioRef.current.load();
         if (questionSfxAudioRef.current) await questionSfxAudioRef.current.load();
-      } catch (error) {
+      } catch {
         console.log('Display Audio: Could not preload sounds. They will load on first play.');
       }
     };
@@ -279,11 +280,12 @@ export default function DisplayPage() {
   if (gameState?.logoOnly) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <img
+        <div className="relative w-screen h-screen">
+          <Image
             src="/LOGO.png"
             alt="Akal Ke Ghode"
-            className="w-dvw h-dvh mx-auto object-contain"
+            fill
+            className="object-contain"
           />
         </div>
       </div>
@@ -617,12 +619,6 @@ export default function DisplayPage() {
                   shiftsOut[s.currentTeam] = (shiftsOut[s.currentTeam] || 0) + 1;
                 });
 
-                const teamColors: { [key: string]: string } = {
-                  red: '#ef4444',
-                  green: '#22c55e',
-                  blue: '#3b82f6'
-                };
-
                 const isAnimating = scoreAnimation.show && scoreAnimation.team === team.id && scoreAnimation.amount !== 0;
                 return (
                   <div key={team.id} className="relative text-center bg-gray-800 rounded-lg p-6 overflow-hidden">
@@ -740,7 +736,7 @@ export default function DisplayPage() {
         <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
           <div className="text-center animate-pulse">
             <div className="text-9xl font-black text-yellow-400 mb-4">⏰</div>
-            <div className="text-8xl font-black text-white">TIME'S UP!</div>
+            <div className="text-8xl font-black text-white">TIME&apos;S UP!</div>
           </div>
         </div>
       )}

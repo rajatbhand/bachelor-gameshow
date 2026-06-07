@@ -4,10 +4,8 @@ import {
   getDoc,
   onSnapshot,
   collection,
-  addDoc,
   updateDoc,
   deleteDoc,
-  deleteField,
   query,
   orderBy,
   serverTimestamp,
@@ -392,7 +390,7 @@ export class GameStateManager {
       const answerToReveal = question.answers.find(answer => answer.id === answerId);
 
       if (answerToReveal) {
-        let finalValue = manualAmount !== undefined ? manualAmount : answerToReveal.value;
+        const finalValue = manualAmount !== undefined ? manualAmount : answerToReveal.value;
 
         const updatedAnswers = question.answers.map(answer => {
           if (answer.id === answerId) {
@@ -636,10 +634,10 @@ export class GameStateManager {
     // Convert members to CSV rows
     const rows = members.map(member => {
       const submittedDate = member.submittedAt
-        ? new Date(member.submittedAt as any).toLocaleString('en-IN')
+        ? new Date(member.submittedAt as string | number).toLocaleString('en-IN')
         : '';
       const updatedDate = member.updatedAt
-        ? new Date(member.updatedAt as any).toLocaleString('en-IN')
+        ? new Date(member.updatedAt as string | number).toLocaleString('en-IN')
         : '';
 
       return [
@@ -767,6 +765,22 @@ export class GameStateManager {
         return rest;
       });
 
+      await updateDoc(questionRef, { answers: updatedAnswers });
+    }
+  }
+
+  async updateAnswer(
+    questionId: string,
+    answerId: string,
+    updates: { text?: string; value?: number }
+  ): Promise<void> {
+    const questionRef = doc(db, 'questions', questionId);
+    const questionDoc = await getDoc(questionRef);
+    if (questionDoc.exists()) {
+      const question = questionDoc.data() as Question;
+      const updatedAnswers = question.answers.map(answer =>
+        answer.id === answerId ? { ...answer, ...updates } : answer
+      );
       await updateDoc(questionRef, { answers: updatedAnswers });
     }
   }
@@ -1014,8 +1028,6 @@ export class GameStateManager {
     }
 
     const guessingTeam = state.round1CurrentGuessingTeam;
-    const currentStrikes = state.round1Strikes?.[guessingTeam] || 0;
-
     if (isCorrect && matchingAnswerId && state.currentQuestion) {
       // Correct guess - reveal the matching answer (same as before)
       const questionRef = doc(db, 'questions', state.currentQuestion);

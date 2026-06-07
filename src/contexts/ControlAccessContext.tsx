@@ -72,7 +72,6 @@ function sha256(message: string): string {
 
 export function ControlAccessProvider({ children }: { children: React.ReactNode }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isInitialized, setIsInitialized] = useState(false);
 
     // Check sessionStorage on mount
     useEffect(() => {
@@ -83,7 +82,6 @@ export function ControlAccessProvider({ children }: { children: React.ReactNode 
                 setIsAuthenticated(true);
             }
         }
-        setIsInitialized(true);
     }, []);
 
     const authenticate = async (password: string): Promise<boolean> => {

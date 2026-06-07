@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { gameStateManager, GameState, Team } from '@/lib/gameState';
+import Image from 'next/image';
+import { gameStateManager, GameState, Team, AudienceMember } from '@/lib/gameState';
 import { useAuth } from '@/contexts/AuthContext';
 import { FcGoogle } from 'react-icons/fc';
 import { MdEmail } from 'react-icons/md';
@@ -44,7 +45,7 @@ export default function AudiencePage() {
   const [isExistingVoter, setIsExistingVoter] = useState(false);
   const [existingVoterData, setExistingVoterData] = useState<{ name: string; phone: string; upiId: string } | null>(null);
   const [previousVotingState, setPreviousVotingState] = useState<boolean | null>(null); // null = not yet initialized
-  const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
+  const [audienceMembers, setAudienceMembers] = useState<AudienceMember[]>([]);
 
   // Subscribe to real-time game state and teams
   useEffect(() => {
@@ -135,14 +136,15 @@ export default function AudiencePage() {
     };
 
     checkExistingVoter();
-  }, [user, gameState?.votingRound, gameState?.audienceWindow]); // Re-check when voting window state changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, gameState?.votingRound, gameState?.audienceWindow]);
 
   const handleGoogleSignIn = async () => {
     try {
       setAuthError('');
       await signInWithGoogle();
-    } catch (err: any) {
-      setAuthError(err.message || 'Failed to sign in with Google');
+    } catch (err: unknown) {
+      setAuthError(err instanceof Error ? err.message : 'Failed to sign in with Google');
     }
   };
 
@@ -163,8 +165,8 @@ export default function AudiencePage() {
       }
       setShowEmailForm(false);
       setEmailFormData({ email: '', password: '' });
-    } catch (err: any) {
-      setAuthError(err.message || `Failed to ${isSignUp ? 'sign up' : 'sign in'}`);
+    } catch (err: unknown) {
+      setAuthError(err instanceof Error ? err.message : `Failed to ${isSignUp ? 'sign up' : 'sign in'}`);
     }
   };
 
@@ -238,8 +240,9 @@ export default function AudiencePage() {
       setSubmitted(true);
       setSubmittedTeam(formData.team);
       setFormData({ name: '', phone: '', upiId: '', team: '' });
-    } catch (err: any) {
-      if (err.message && err.message.includes('only allowed in the first voting round')) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg.includes('only allowed in the first voting round')) {
         setError('New voters are only allowed in the first voting round.');
       } else {
         setError('Failed to submit. Please try again.');
@@ -276,10 +279,12 @@ export default function AudiencePage() {
           {/* Header */}
           <div className="text-center mb-4">
             <div className="mb-4">
-              <img
+              <Image
                 src="/LOGO.png"
                 alt="Akal Ke Ghode Logo"
-                className="w-24 h-24 mx-auto rounded-lg"
+                width={96}
+                height={96}
+                className="mx-auto rounded-lg"
               />
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">AKAL KE GHODE</h1>
@@ -464,10 +469,12 @@ export default function AudiencePage() {
         {/* Header */}
         <div className="text-center mb-4">
           <div className="flex items-center justify-center mb-4">
-            <img
+            <Image
               src="/LOGO.png"
               alt="Akal Ke Ghode Logo"
-              className="w-16 h-16 mx-4 rounded-lg"
+              width={64}
+              height={64}
+              className="mx-4 rounded-lg"
             />
             <h1 className="text-3xl font-bold text-gray-900">AKAL KE GHODE</h1>
           </div>

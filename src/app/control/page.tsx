@@ -1,25 +1,16 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { gameStateManager, GameState, Team, Question, BrandQuestion } from '@/lib/gameState';
+import { gameStateManager, GameState, Team, Question, BrandQuestion, AudienceMember } from '@/lib/gameState';
 import { useControlAccess } from '@/contexts/ControlAccessContext';
 import Papa from 'papaparse';
 import {
   collection,
   query,
   onSnapshot,
-  orderBy,
-  limit,
   doc,
-  getDoc,
-  updateDoc,
-  serverTimestamp,
-  addDoc,
-  getDocs,
   writeBatch,
-  where,
   setDoc,
-  deleteDoc,
   deleteField
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -39,7 +30,7 @@ export default function ControlPage() {
     text: '',
     answers: [{ text: '', value: 0 }]
   });
-  const [audienceMembers, setAudienceMembers] = useState<any[]>([]);
+  const [audienceMembers, setAudienceMembers] = useState<AudienceMember[]>([]);
   const [loadedQuestions, setLoadedQuestions] = useState<Question[]>([]);
   const [round1SelectedAnswer, setRound1SelectedAnswer] = useState<string>(''); // For marking correct guess
   const [round1TeamAmounts, setRound1TeamAmounts] = useState<{ red: number; green: number; blue: number }>({
@@ -56,9 +47,12 @@ export default function ControlPage() {
   const [episodeInfo, setEpisodeInfo] = useState('');
   const [manualScoreInputs, setManualScoreInputs] = useState<{ [key: string]: string }>({ red: '', green: '', blue: '' });
 
+  // Edit Answers panel state
+  const [editAnswerDrafts, setEditAnswerDrafts] = useState<Record<string, { text: string; value: string }>>({});
+  const [editAnswersPanelOpen, setEditAnswersPanelOpen] = useState(false);
+
   // Brand Section State
   const [brandQuestions, setBrandQuestions] = useState<BrandQuestion[]>([]);
-  const [activeBrandQuestionId, setActiveBrandQuestionId] = useState<string | null>(null);
   const [brandCsvFile, setBrandCsvFile] = useState<File | null>(null);
 
   // Upload Tab State
@@ -80,10 +74,6 @@ export default function ControlPage() {
     bigXAudioRef.current = new Audio('/sounds/big-x.mp3');
     teamAnswerAudioRef.current = new Audio('/sounds/team-answer-reveal.mp3');
     hostAnswerAudioRef.current = new Audio('/sounds/host-answer-reveal.mp3');
-    // Set initial volume
-    if (bigXAudioRef.current) bigXAudioRef.current.volume = audioVolume;
-    if (teamAnswerAudioRef.current) teamAnswerAudioRef.current.volume = audioVolume;
-    if (hostAnswerAudioRef.current) hostAnswerAudioRef.current.volume = audioVolume;
 
     // Preload audio files
     const preloadAudio = async () => {
@@ -91,7 +81,7 @@ export default function ControlPage() {
         if (bigXAudioRef.current) await bigXAudioRef.current.load();
         if (teamAnswerAudioRef.current) await teamAnswerAudioRef.current.load();
         if (hostAnswerAudioRef.current) await hostAnswerAudioRef.current.load();
-      } catch (error) {
+      } catch {
         console.log('Audio files not found yet - will play when provided');
       }
     };
@@ -222,6 +212,36 @@ export default function ControlPage() {
     };
   }, []);
 
+  // Sync edit drafts when the active question changes (dep on .id only to avoid resetting mid-edit on real-time updates)
+  useEffect(() => {
+    if (!currentQuestion) { setEditAnswerDrafts({}); return; }
+    const drafts: Record<string, { text: string; value: string }> = {};
+    currentQuestion.answers.forEach(answer => {
+      drafts[answer.id] = { text: answer.text, value: String(answer.value) };
+    });
+    setEditAnswerDrafts(drafts);
+  }, [currentQuestion?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleUpdateAnswer = async (answerId: string) => {
+    if (!currentQuestion) return;
+    const draft = editAnswerDrafts[answerId];
+    if (!draft) return;
+    const parsedValue = parseInt(draft.value, 10);
+    if (isNaN(parsedValue)) { alert('Value must be a number'); return; }
+    setLoading(true);
+    try {
+      await gameStateManager.updateAnswer(currentQuestion.id, answerId, {
+        text: draft.text.trim(),
+        value: parsedValue
+      });
+    } catch (error) {
+      console.error('Error updating answer:', error);
+      alert('Failed to save answer. Check console.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleUpdateGameState = async (updates: Partial<GameState>) => {
     setLoading(true);
     try {
@@ -244,21 +264,6 @@ export default function ControlPage() {
       }
     } catch (error) {
       console.error('Error updating game state:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRevealAnswer = async (answerId: string, attribution: 'red' | 'green' | 'blue' | 'host' | 'neutral') => {
-    if (!currentQuestion) return;
-
-    console.log('Control: Revealing answer:', answerId, 'with attribution:', attribution);
-    setLoading(true);
-    try {
-      await gameStateManager.revealAnswer(currentQuestion.id, answerId, attribution);
-      console.log('Control: Answer revealed successfully');
-    } catch (error) {
-      console.error('Error revealing answer:', error);
     } finally {
       setLoading(false);
     }
@@ -376,7 +381,7 @@ export default function ControlPage() {
       Papa.parse(brandCsvFile, {
         header: true,
         skipEmptyLines: true,
-        complete: async (results: Papa.ParseResult<any>) => {
+        complete: async (results: Papa.ParseResult<Record<string, string>>) => {
           const batch = writeBatch(db);
           let count = 0;
           for (const row of results.data) {
@@ -449,7 +454,7 @@ export default function ControlPage() {
       Papa.parse(csvFile, {
         header: true,
         skipEmptyLines: true,
-        complete: async (results: Papa.ParseResult<any>) => {
+        complete: async (results: Papa.ParseResult<Record<string, string>>) => {
           const batch = writeBatch(db);
           let count = 0;
           for (const row of results.data) {
@@ -713,19 +718,6 @@ export default function ControlPage() {
     }
   };
 
-  const handleResetRound1Strikes = async () => {
-    if (!confirm('Reset Round 1 strikes for all teams?')) return;
-    setLoading(true);
-    try {
-      await gameStateManager.resetRound1Strikes();
-      console.log('Control: Round 1 strikes reset');
-    } catch (error) {
-      console.error('Error resetting Round 1 strikes:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleRound1TeamAmountChange = (team: 'red' | 'green' | 'blue', amount: number) => {
     setRound1TeamAmounts(prev => ({
       ...prev,
@@ -762,34 +754,6 @@ export default function ControlPage() {
   };
 
   // ========== ROUND 2 HANDLERS ==========
-  const handleRound2SelectOptions = async () => {
-    if (round2Selection.length < 2) {
-      alert('Please select exactly 3 questions.');
-      return;
-    }
-    setLoading(true);
-    try {
-      await gameStateManager.setRound2AvailableQuestions(round2Selection);
-      console.log('Control: Round 2 options set:', round2Selection);
-    } catch (error) {
-      console.error('Error setting Round 2 options:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRound2SelectQuestion = async (questionId: string) => {
-    setLoading(true);
-    try {
-      await gameStateManager.selectRound2Question(questionId);
-      console.log('Control: Round 2 question selected:', questionId);
-    } catch (error) {
-      console.error('Error selecting Round 2 question:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleRound2StartTimer = async () => {
     setLoading(true);
     try {
@@ -1402,6 +1366,63 @@ export default function ControlPage() {
               })()}
             </div>
 
+            {/* Edit Answers Panel */}
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between px-6 py-4 text-left font-bold text-gray-800 hover:bg-gray-50 transition-colors"
+                onClick={() => setEditAnswersPanelOpen(o => !o)}
+              >
+                <span>Edit Answers</span>
+                <span className="text-gray-400 text-sm">{editAnswersPanelOpen ? '▲' : '▼'}</span>
+              </button>
+
+              {editAnswersPanelOpen && (
+                <div className="px-6 pb-6 space-y-3 border-t border-gray-100 pt-4">
+                  {!currentQuestion ? (
+                    <p className="text-sm text-gray-400">No question selected.</p>
+                  ) : (
+                    currentQuestion.answers.map((answer, index) => {
+                      const draft = editAnswerDrafts[answer.id];
+                      const isDirty = draft && (draft.text !== answer.text || draft.value !== String(answer.value));
+                      return (
+                        <div key={answer.id} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400 w-5 text-right shrink-0">#{index + 1}</span>
+                          {answer.revealed && (
+                            <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-300 rounded px-1 shrink-0">LIVE</span>
+                          )}
+                          <input
+                            type="text"
+                            className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 min-w-0"
+                            value={draft?.text ?? answer.text}
+                            onChange={e => setEditAnswerDrafts(prev => ({
+                              ...prev,
+                              [answer.id]: { ...prev[answer.id], text: e.target.value }
+                            }))}
+                          />
+                          <input
+                            type="number"
+                            className="w-20 border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 shrink-0"
+                            value={draft?.value ?? String(answer.value)}
+                            onChange={e => setEditAnswerDrafts(prev => ({
+                              ...prev,
+                              [answer.id]: { ...prev[answer.id], value: e.target.value }
+                            }))}
+                          />
+                          <button
+                            onClick={() => handleUpdateAnswer(answer.id)}
+                            disabled={!isDirty || loading}
+                            className="shrink-0 px-3 py-1.5 text-sm font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
             {(['pre-show', 'round1', 'round3'].includes(gameState?.currentRound || '')) && (
               <div className="bg-white rounded-lg shadow-md p-6">
                 <h2 className="text-xl font-bold mb-4">
@@ -1687,6 +1708,7 @@ export default function ControlPage() {
                           try {
                             await gameStateManager.setRound2Options(round2Selection);
                             // Clear round2State so question pool becomes visible
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             await gameStateManager.updateGameState({ round2State: deleteField() as any });
                             setRound2Selection([]); // Clear selection after setting
                           } finally {
@@ -1854,6 +1876,7 @@ export default function ControlPage() {
                           setLoading(true);
                           try {
                             await gameStateManager.updateGameState({
+                              // eslint-disable-next-line @typescript-eslint/no-explicit-any
                               round2State: deleteField() as any,
                               round2CurrentTeam: null,
                               currentQuestion: null,
@@ -1869,7 +1892,7 @@ export default function ControlPage() {
                         className="w-full p-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700"
                         disabled={loading}
                       >
-                        FINISH THIS TEAM'S ROUND
+                        FINISH THIS TEAM&apos;S ROUND
                       </button>
                     </div>
                   </div>
@@ -2065,7 +2088,7 @@ export default function ControlPage() {
                     }
                     triggerAudienceDownload(members);
                     alert(`Exported ${members.length} audience members successfully!`);
-                  } catch (e) {
+                  } catch {
                     alert('Failed to export audience data. Check console for details.');
                   }
                 }}
