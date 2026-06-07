@@ -70,6 +70,7 @@ export default function ControlPage() {
   const bigXAudioRef = useRef<HTMLAudioElement | null>(null);
   const teamAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
   const hostAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const questionSfxAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Audio state
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -80,11 +81,13 @@ export default function ControlPage() {
     bigXAudioRef.current = new Audio('/sounds/big-x.mp3');
     teamAnswerAudioRef.current = new Audio('/sounds/team-answer-reveal.mp3');
     hostAnswerAudioRef.current = new Audio('/sounds/host-answer-reveal.mp3');
+    questionSfxAudioRef.current = new Audio('/sounds/question-sfx.wav');
 
     // Set initial volume
     if (bigXAudioRef.current) bigXAudioRef.current.volume = audioVolume;
     if (teamAnswerAudioRef.current) teamAnswerAudioRef.current.volume = audioVolume;
     if (hostAnswerAudioRef.current) hostAnswerAudioRef.current.volume = audioVolume;
+    if (questionSfxAudioRef.current) questionSfxAudioRef.current.volume = audioVolume;
 
     // Preload audio files
     const preloadAudio = async () => {
@@ -92,6 +95,7 @@ export default function ControlPage() {
         if (bigXAudioRef.current) await bigXAudioRef.current.load();
         if (teamAnswerAudioRef.current) await teamAnswerAudioRef.current.load();
         if (hostAnswerAudioRef.current) await hostAnswerAudioRef.current.load();
+        if (questionSfxAudioRef.current) await questionSfxAudioRef.current.load();
       } catch (error) {
         console.log('Audio files not found yet - will play when provided');
       }
@@ -104,6 +108,7 @@ export default function ControlPage() {
     if (bigXAudioRef.current) bigXAudioRef.current.volume = audioVolume;
     if (teamAnswerAudioRef.current) teamAnswerAudioRef.current.volume = audioVolume;
     if (hostAnswerAudioRef.current) hostAnswerAudioRef.current.volume = audioVolume;
+    if (questionSfxAudioRef.current) questionSfxAudioRef.current.volume = audioVolume;
   }, [audioVolume]);
 
   // Audio playing functions
@@ -340,7 +345,9 @@ export default function ControlPage() {
   };
 
   const playQuestionSelectionSFX = () => {
-    new Audio('/public/sounds/question-sfx.wav').play().catch(() => {});
+    if (!audioEnabled || !questionSfxAudioRef.current) return;
+    questionSfxAudioRef.current.currentTime = 0;
+    questionSfxAudioRef.current.play().catch(() => {});
   };
 
   const handleSelectQuestion = async (questionId: string) => {
