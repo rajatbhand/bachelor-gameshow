@@ -67,21 +67,25 @@ export default function DisplayPage() {
   const teamAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
   const hostAnswerAudioRef = useRef<HTMLAudioElement | null>(null);
   const timerEndAudioRef = useRef<HTMLAudioElement | null>(null);
+  const timerStartAudioRef = useRef<HTMLAudioElement | null>(null);
+  const endGameAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    // Initialize audio elements on the client
     bigXAudioRef.current = new Audio('/sounds/big-x.mp3');
     teamAnswerAudioRef.current = new Audio('/sounds/team-answer-reveal.mp3');
     hostAnswerAudioRef.current = new Audio('/sounds/host-answer-reveal.mp3');
-    timerEndAudioRef.current = new Audio('/sounds/timer-end.mp3');
+    timerEndAudioRef.current = new Audio('/sounds/Timer-end.wav');
+    timerStartAudioRef.current = new Audio('/sounds/Timer-start.wav');
+    endGameAudioRef.current = new Audio('/sounds/celebratory.wav');
 
-    // Preload audio files for instant playback
     const preloadAudio = async () => {
       try {
         if (bigXAudioRef.current) await bigXAudioRef.current.load();
         if (teamAnswerAudioRef.current) await teamAnswerAudioRef.current.load();
         if (hostAnswerAudioRef.current) await hostAnswerAudioRef.current.load();
         if (timerEndAudioRef.current) await timerEndAudioRef.current.load();
+        if (timerStartAudioRef.current) await timerStartAudioRef.current.load();
+        if (endGameAudioRef.current) await endGameAudioRef.current.load();
       } catch (error) {
         console.log('Display Audio: Could not preload sounds. They will load on first play.');
       }
@@ -103,19 +107,28 @@ export default function DisplayPage() {
   const prevCurrentQuestion = usePrevious(currentQuestion);
 
   useEffect(() => {
-    // Play Big X sound when it's toggled on
+    // Big X
     if (gameState && prevGameState && !prevGameState.bigX && gameState.bigX) {
       playSound(bigXAudioRef);
     }
 
-    // Play sound when an answer is revealed
+    // Timer start
+    if (gameState && prevGameState && !prevGameState.timerActive && gameState.timerActive) {
+      playSound(timerStartAudioRef);
+    }
+
+    // End-game screen
+    if (gameState && prevGameState && !prevGameState.showEndScreen && gameState.showEndScreen) {
+      playSound(endGameAudioRef);
+    }
+
+    // Answer revealed
     if (currentQuestion && prevCurrentQuestion && currentQuestion.id === prevCurrentQuestion.id) {
       for (let i = 0; i < currentQuestion.answers.length; i++) {
         const currentAnswer = currentQuestion.answers[i];
         const prevAnswer = prevCurrentQuestion.answers[i];
 
         if (prevAnswer && !prevAnswer.revealed && currentAnswer.revealed) {
-          // This answer was just revealed
           if (currentAnswer.attribution === 'host' || currentAnswer.attribution === 'neutral') {
             playSound(hostAnswerAudioRef);
           } else if (['red', 'green', 'blue'].includes(currentAnswer.attribution!)) {
@@ -244,16 +257,8 @@ export default function DisplayPage() {
       const prev = prevScoresRef.current[team.id] ?? 0;
       const diff = team.score - prev;
       if (diff !== 0) {
-        // Animate the score change
         setScoreAnimation({ show: true, amount: diff, team: team.id });
         setTimeout(() => setScoreAnimation({ show: false, amount: 0, team: '' }), 3000);
-
-        // Play sound based on change direction
-        if (diff > 0) {
-          playSound(teamAnswerAudioRef);
-        } else {
-          playSound(bigXAudioRef);
-        }
       }
       // Update stored score
       prevScoresRef.current[team.id] = team.score;

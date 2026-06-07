@@ -340,7 +340,7 @@ export default function ControlPage() {
   };
 
   const playQuestionSelectionSFX = () => {
-    new Audio('/sounds/question-selection.mp3').play().catch(() => {});
+    new Audio('/public/sounds/question-sfx.wav').play().catch(() => {});
   };
 
   const handleSelectQuestion = async (questionId: string) => {
