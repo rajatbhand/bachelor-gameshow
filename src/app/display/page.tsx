@@ -69,6 +69,7 @@ export default function DisplayPage() {
   const timerEndAudioRef = useRef<HTMLAudioElement | null>(null);
   const timerStartAudioRef = useRef<HTMLAudioElement | null>(null);
   const endGameAudioRef = useRef<HTMLAudioElement | null>(null);
+  const questionSfxAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     bigXAudioRef.current = new Audio('/sounds/big-x.mp3');
@@ -77,6 +78,7 @@ export default function DisplayPage() {
     timerEndAudioRef.current = new Audio('/sounds/Timer-end.wav');
     timerStartAudioRef.current = new Audio('/sounds/Timer-start.wav');
     endGameAudioRef.current = new Audio('/sounds/celebratory.wav');
+    questionSfxAudioRef.current = new Audio('/sounds/question-sfx.wav');
 
     const preloadAudio = async () => {
       try {
@@ -86,6 +88,7 @@ export default function DisplayPage() {
         if (timerEndAudioRef.current) await timerEndAudioRef.current.load();
         if (timerStartAudioRef.current) await timerStartAudioRef.current.load();
         if (endGameAudioRef.current) await endGameAudioRef.current.load();
+        if (questionSfxAudioRef.current) await questionSfxAudioRef.current.load();
       } catch (error) {
         console.log('Display Audio: Could not preload sounds. They will load on first play.');
       }
@@ -107,6 +110,13 @@ export default function DisplayPage() {
   const prevCurrentQuestion = usePrevious(currentQuestion);
 
   useEffect(() => {
+    // Question selected
+    if (gameState && prevGameState &&
+      gameState.currentQuestion &&
+      gameState.currentQuestion !== prevGameState.currentQuestion) {
+      playSound(questionSfxAudioRef);
+    }
+
     // Big X
     if (gameState && prevGameState && !prevGameState.bigX && gameState.bigX) {
       playSound(bigXAudioRef);
