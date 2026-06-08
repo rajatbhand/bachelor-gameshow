@@ -42,8 +42,8 @@ export default function ControlPage() {
 
   const [round2ManualScores, setRound2ManualScores] = useState<{ [key: string]: number }>({});
   const [round2TimerDuration, setRound2TimerDuration] = useState<string>('90');
-  const [round3PenaltyAmount, setRound3PenaltyAmount] = useState<string>('1000');
-  const [round3BucketTotal, setRound3BucketTotal] = useState<string>('0');
+  const [round3PenaltyAmount, setRound3PenaltyAmount] = useState<string>('0');
+  const [round3BucketTotal, setRound3BucketTotal] = useState<string>('6000');
   const [episodeInfo, setEpisodeInfo] = useState('');
   const [manualScoreInputs, setManualScoreInputs] = useState<{ [key: string]: string }>({ red: '', green: '', blue: '' });
 
@@ -1536,8 +1536,8 @@ export default function ControlPage() {
                                 className="w-full p-1 border border-blue-300 rounded text-center font-bold text-blue-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                               />
                             </div>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-1">
                                 <label className="text-sm font-semibold text-blue-800 whitespace-nowrap">Prize bucket (₹):</label>
                                 <input
                                   type="text"
@@ -1547,6 +1547,16 @@ export default function ControlPage() {
                                   className="w-24 p-1 border border-blue-300 rounded text-center font-bold text-blue-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
                               </div>
+                              <button
+                                onClick={async () => {
+                                  const val = parseInt(round3BucketTotal) || 0;
+                                  await gameStateManager.updateGameState({ round3BucketTotal: val });
+                                }}
+                                disabled={loading}
+                                className="text-xs text-blue-700 border border-blue-400 rounded px-2 py-1 font-semibold hover:bg-blue-100 disabled:opacity-50"
+                              >
+                                Update
+                              </button>
                               <button
                                 onClick={async () => {
                                   setRound3BucketTotal('0');
