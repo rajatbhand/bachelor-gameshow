@@ -78,7 +78,7 @@ export default function DisplayPage() {
     hostAnswerAudioRef.current = new Audio('/sounds/host-answer-reveal.mp3');
     timerEndAudioRef.current = new Audio('/sounds/Timer-end.wav');
     timerStartAudioRef.current = new Audio('/sounds/Timer-start.wav');
-    endGameAudioRef.current = new Audio('/sounds/celebratory.wav');
+    endGameAudioRef.current = new Audio('/sounds/celebratory.mp3');
     questionSfxAudioRef.current = new Audio('/sounds/question-sfx.wav');
 
     const preloadAudio = async () => {
