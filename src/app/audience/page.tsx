@@ -37,6 +37,7 @@ export default function AudiencePage() {
   });
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submittedTeam, setSubmittedTeam] = useState<'red' | 'green' | 'blue' | null>(null);
   const [loading, setLoading] = useState(false);
@@ -140,6 +141,10 @@ export default function AudiencePage() {
   }, [user, gameState?.votingRound, gameState?.audienceWindow]);
 
   const handleGoogleSignIn = async () => {
+    if (!termsAccepted) {
+      setAuthError('Please accept the Terms & Conditions and Privacy Policy to continue.');
+      return;
+    }
     try {
       setAuthError('');
       await signInWithGoogle();
@@ -153,6 +158,11 @@ export default function AudiencePage() {
 
     if (!emailFormData.email || !emailFormData.password) {
       setAuthError('Please enter email and password');
+      return;
+    }
+
+    if (!termsAccepted) {
+      setAuthError('Please accept the Terms & Conditions and Privacy Policy to continue.');
       return;
     }
 
@@ -310,7 +320,8 @@ export default function AudiencePage() {
               <div className="space-y-3 mb-4">
                 <button
                   onClick={handleGoogleSignIn}
-                  className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+                  disabled={!termsAccepted}
+                  className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
                 >
                   <FcGoogle size={24} />
                   Continue with Google
@@ -318,7 +329,8 @@ export default function AudiencePage() {
 
                 <button
                   onClick={() => { setShowEmailForm(true); setIsSignUp(false); }}
-                  className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+                  disabled={!termsAccepted}
+                  className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
                 >
                   <MdEmail size={24} className="text-gray-600" />
                   Continue with Email
@@ -354,7 +366,8 @@ export default function AudiencePage() {
 
                 <button
                   type="submit"
-                  className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors"
+                  disabled={!termsAccepted}
+                  className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-gray-300"
                 >
                   {isSignUp ? 'Sign Up' : 'Sign In'}
                 </button>
@@ -377,6 +390,36 @@ export default function AudiencePage() {
               </form>
             </>
           )}
+
+          {/* Terms & Privacy consent */}
+          <label className="mt-4 flex items-start gap-3 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              className="mt-0.5 w-4 h-4 shrink-0 accent-blue-600"
+            />
+            <span>
+              I agree to the{' '}
+              <a
+                href="/terms/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline hover:text-blue-700"
+              >
+                Terms &amp; Conditions
+              </a>
+              {' '}and{' '}
+              <a
+                href="/privacy/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline hover:text-blue-700"
+              >
+                Privacy Policy
+              </a>.
+            </span>
+          </label>
 
           {/* Footer */}
           <div className="text-center mt-6 text-sm text-gray-500">
