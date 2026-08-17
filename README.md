@@ -1,6 +1,79 @@
-# Bachelor Game Show
+# Bachelor Game Show — no-server BACKUP edition
 
 A real-time game show application built with Next.js 14, Firebase, and TypeScript. Features live audience interaction, team scoring, and dynamic question reveals.
+
+> **This is the backup.** The primary deployment is `../bachelor-gameshow-live/`,
+> where a Node server owns the game state. This app talks straight to Firestore
+> with no server at all, which is exactly what makes it the thing you switch to
+> when the server dies. Both run against the same Firebase project as each
+> other, so scores, the board and the timeline carry over.
+>
+> Full show-day runbook: [`../bachelor-gameshow-live/README.md`](../bachelor-gameshow-live/README.md).
+
+## Failover
+
+`control/mode.backupMode` decides who owns the show. Press **TAKE CONTROL** on
+this app's `/control` — the live server stops mirroring and this panel becomes
+the authority. The switch is written straight to Firestore, so it works when the
+server is unreachable.
+
+Once you have taken control, **do not hand it back mid-show** — both apps would
+then be writing `gameState/live`.
+
+## Where this deploys
+
+Two Firebase projects, matching the two branches:
+
+| branch | project | backup app | live app |
+|---|---|---|---|
+| `ach` (latest) | `akal-ke-ghode-test` | https://akal-ke-ghode-test.web.app | https://akal-ke-ghode-live.web.app |
+| `master` | `bachelore-gameshow` | https://bachelore-gameshow.web.app | https://bachelore-gameshow-live.web.app |
+
+Each project hosts both apps on separate hosting sites, wired as deploy targets
+(`backup` and `live`), so the two never deploy over each other. The backup keeps
+its existing URLs.
+
+```bash
+npm run deploy:test        # -> akal-ke-ghode-test  (branch `ach`)
+npm run deploy:prod        # -> bachelore-gameshow  (branch `master`)
+```
+
+## Upgrading the deployed site
+
+Deploy in this order, outside a show:
+
+1. `npm run deploy:test` — the new bundle.
+2. `npm run deploy:rules:test` — the rules.
+
+Existing game state needs no migration. `teamMode`/`activeTeams` are backfilled
+the first time the control panel loads, and older game states default to three
+horses.
+
+## A note on voter data
+
+The control panel has no login — you press the export button and get the
+workbook. That is a deliberate choice, and it has a cost: because this app has
+no server, Firestore cannot tell the control panel apart from a stranger, so
+`audience` documents stay **readable by anyone who knows the project id**. They
+contain voter name, phone number and UPI id.
+
+Writes *are* locked down — a voter can only create and edit their own record, so
+nobody can stuff the ballot or rewrite someone else's vote.
+
+If you ever want to close the read hole: add an `operators/{uid}` allowlist
+document per crew member, gate the `audience` read on it in `firestore.rules`,
+and sign the control panel in with that account. It is a one-time sign-in per
+laptop, not a per-show step.
+
+The server-backed app in `../bachelor-gameshow-live/` does not have this
+exposure at all — voter data never leaves its server except to an authenticated
+operator.
+
+## What this app also has
+
+The 2v2 format picker, the two-sheet Excel export (votes + game timeline), and
+live question editing all work here exactly as they do in the live app; see the
+runbook linked above.
 
 ## 🚀 Features
 

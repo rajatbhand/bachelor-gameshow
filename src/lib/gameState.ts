@@ -6,6 +6,7 @@ import {
   collection,
   updateDoc,
   deleteDoc,
+  deleteField,
   query,
   orderBy,
   serverTimestamp,
@@ -15,6 +16,40 @@ import {
   documentId
 } from 'firebase/firestore';
 import { db } from './firebase';
+
+export type TeamColor = 'red' | 'green' | 'blue';
+/** '3-horse' = the classic red/green/blue show. '2v2' = two teams the operator picks. */
+export type TeamMode = '3-horse' | '2v2';
+
+export const TEAM_COLORS: TeamColor[] = ['red', 'green', 'blue'];
+
+/**
+ * One row of the "Game Timeline" sheet in the exported workbook. Rows are
+ * appended to the `gameState/timeline` document as the show runs.
+ *
+ * The timeline lives in its OWN document rather than inside gameState/current:
+ * it grows all show, and every listener re-downloads a document on each change,
+ * so parking it here keeps the hot game-state document small.
+ */
+export interface TimelineEvent {
+  seq: number;
+  ts: number;
+  round: string;
+  type: string;
+  label: string;
+  team: TeamColor | 'host' | 'neutral' | null;
+  questionId: string | null;
+  answerId: string | null;
+  detail: string;
+  points: number | null;
+  scores: Record<TeamColor, number>;
+}
+
+/** Cap so a long show can never push the timeline document near Firestore's 1 MB limit. */
+export const TIMELINE_MAX = 2000;
+
+/** The Round 3 prize bucket every episode opens with. */
+export const ROUND3_START_BUCKET = 6000;
 
 // Game State Types
 export interface GameState {
@@ -64,6 +99,26 @@ export interface GameState {
   activeBrandQuestionId?: string | null;
   // Round 3 prize bucket (accumulated from wrong-answer penalties)
   round3BucketTotal?: number;
+  // Team configuration — which format this episode runs and which horses are in
+  // play. Every team list in the UI is driven off activeTeams, so a 2v2 episode
+  // simply shows two horses everywhere.
+  teamMode?: TeamMode;
+  activeTeams?: TeamColor[];
+  /**
+   * Derived audience figures for the big screen, written by the operator when
+   * the votes are recounted. Lets the display render the submission count and
+   * vote-shift overlay WITHOUT reading the `audience` collection, which holds
+   * every voter's phone number and UPI id.
+   */
+  audienceSummary?: {
+    count: number;
+    switchers: Array<{
+      name: string;
+      upiId: string;
+      previousTeam: TeamColor;
+      currentTeam: TeamColor;
+    }>;
+  };
 }
 
 export interface Team {
@@ -166,10 +221,17 @@ export class GameStateManager {
         round1Active: false,
         round1CurrentGuessingTeam: null,
         // End show state
-        showEndScreen: false
+        showEndScreen: false,
+        // Team format — defaults to the classic three horses
+        teamMode: '3-horse',
+        activeTeams: [...TEAM_COLORS],
+        round3BucketTotal: ROUND3_START_BUCKET
       };
 
       await setDoc(gameStateRef, initialState);
+    } else if (!gameStateDoc.data()?.activeTeams) {
+      // Backfill for games created before 2v2 existed.
+      await updateDoc(gameStateRef, { teamMode: '3-horse', activeTeams: [...TEAM_COLORS] });
     }
 
     // Initialize teams if they don't exist
@@ -189,6 +251,125 @@ export class GameStateManager {
         await setDoc(teamRef, teamData);
       }
     }
+  }
+
+  // ========== SHOW TIMELINE ==========
+
+  /**
+   * Append one row to the show timeline (`gameState/timeline`).
+   *
+   * Fire-and-forget on purpose: the timeline is a recording of the show, and a
+   * failed write must never block or break the show itself. Scores are read
+   * fresh so each row carries the running totals the room actually saw.
+   */
+  async recordEvent(input: {
+    type: string;
+    label: string;
+    team?: TimelineEvent['team'];
+    questionId?: string | null;
+    answerId?: string | null;
+    detail?: string;
+    points?: number | null;
+  }): Promise<void> {
+    try {
+      const timelineRef = doc(db, 'gameState', 'timeline');
+      const [timelineDoc, gameStateDoc, teamsSnapshot] = await Promise.all([
+        getDoc(timelineRef),
+        getDoc(doc(db, 'gameState', 'current')),
+        getDocs(collection(db, 'teams'))
+      ]);
+
+      const scores: Record<TeamColor, number> = { red: 0, green: 0, blue: 0 };
+      teamsSnapshot.forEach((teamDoc) => {
+        const team = teamDoc.data() as Team;
+        if (team.id in scores) scores[team.id] = team.score ?? 0;
+      });
+
+      const existing = timelineDoc.exists()
+        ? ((timelineDoc.data().events ?? []) as TimelineEvent[])
+        : [];
+      const seq = (timelineDoc.exists() ? (timelineDoc.data().seq ?? 0) : 0) + 1;
+
+      const event: TimelineEvent = {
+        seq,
+        ts: Date.now(),
+        round: gameStateDoc.exists() ? (gameStateDoc.data().currentRound ?? '') : '',
+        type: input.type,
+        label: input.label,
+        team: input.team ?? null,
+        questionId: input.questionId ?? null,
+        answerId: input.answerId ?? null,
+        detail: input.detail ?? '',
+        points: input.points ?? null,
+        scores
+      };
+
+      const events = [...existing, event];
+      await setDoc(timelineRef, {
+        events: events.length > TIMELINE_MAX ? events.slice(-TIMELINE_MAX) : events,
+        seq
+      });
+    } catch (error) {
+      console.error('Timeline: could not record event', input.type, error);
+    }
+  }
+
+  async getTimeline(): Promise<TimelineEvent[]> {
+    const timelineDoc = await getDoc(doc(db, 'gameState', 'timeline'));
+    return timelineDoc.exists() ? ((timelineDoc.data().events ?? []) as TimelineEvent[]) : [];
+  }
+
+  subscribeToTimeline(callback: (events: TimelineEvent[]) => void): () => void {
+    const unsubscribe = onSnapshot(doc(db, 'gameState', 'timeline'), (snapshot) => {
+      callback(snapshot.exists() ? ((snapshot.data().events ?? []) as TimelineEvent[]) : []);
+    });
+    this.listeners.set('timeline', unsubscribe);
+    return unsubscribe;
+  }
+
+  async clearTimeline(): Promise<void> {
+    await setDoc(doc(db, 'gameState', 'timeline'), { events: [], seq: 0 });
+  }
+
+  // ========== TEAM FORMAT (3 horses vs 2v2) ==========
+
+  /**
+   * Switch the episode format. Colors dropped from play keep their scores (so
+   * switching back mid-show loses nothing) but vanish from the control panel,
+   * the display and the audience voting screen.
+   */
+  async setTeamMode(mode: TeamMode, activeTeams: TeamColor[]): Promise<void> {
+    const next = mode === '3-horse' ? [...TEAM_COLORS] : activeTeams;
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+    const state = gameStateDoc.exists() ? (gameStateDoc.data() as GameState) : null;
+
+    const updates: Record<string, unknown> = {
+      teamMode: mode,
+      activeTeams: next,
+      lastUpdated: serverTimestamp()
+    };
+    // A team that just left play can't stay selected anywhere.
+    if (state?.round1CurrentGuessingTeam && !next.includes(state.round1CurrentGuessingTeam)) {
+      updates.round1CurrentGuessingTeam = null;
+    }
+    if (state?.round2CurrentTeam && !next.includes(state.round2CurrentTeam)) {
+      updates.round2CurrentTeam = null;
+    }
+    if (
+      state?.activeTeam &&
+      state.activeTeam !== 'host' &&
+      !next.includes(state.activeTeam as TeamColor)
+    ) {
+      updates.activeTeam = null;
+    }
+
+    await updateDoc(gameStateRef, updates);
+    void this.recordEvent({
+      type: 'team_mode',
+      label: mode === '2v2' ? 'Format set to 2v2' : 'Format set to 3 horses',
+      detail: next.map((c) => c.toUpperCase()).join(' vs ')
+    });
   }
 
   // Update round2Options (the three questions selected for the round)
@@ -223,21 +404,46 @@ export class GameStateManager {
     return unsubscribe;
   }
 
-  // Listen to teams changes
+  /**
+   * Listen to the horses IN PLAY, in screen order.
+   *
+   * This is the single lever that makes 2v2 work everywhere: it watches both the
+   * team documents and `activeTeams` on the game state, and only emits the teams
+   * the episode is actually running. Every page that maps over this list — the
+   * control panel, the display, the audience voting screen — shrinks to two
+   * horses without knowing anything about the format.
+   */
   subscribeToTeams(callback: (teams: Team[]) => void): () => void {
-    const teamsRef = collection(db, 'teams');
-    const q = query(teamsRef);
     const teamOrder = ['green', 'blue', 'red'];
+    let allTeams: Team[] = [];
+    let activeTeams: TeamColor[] = [...TEAM_COLORS];
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const teams: Team[] = [];
+    const emit = () => {
+      const filtered = allTeams
+        .filter((team) => activeTeams.includes(team.id))
+        .sort((a, b) => teamOrder.indexOf(a.id) - teamOrder.indexOf(b.id));
+      callback(filtered);
+    };
+
+    const unsubscribeTeams = onSnapshot(query(collection(db, 'teams')), (querySnapshot) => {
+      allTeams = [];
       querySnapshot.forEach((docSnapshot) => {
-        teams.push(docSnapshot.data() as Team);
+        allTeams.push(docSnapshot.data() as Team);
       });
-      teams.sort((a, b) => teamOrder.indexOf(a.id) - teamOrder.indexOf(b.id));
-      callback(teams);
+      emit();
     });
 
+    const unsubscribeState = onSnapshot(doc(db, 'gameState', 'current'), (snapshot) => {
+      if (!snapshot.exists()) return;
+      const next = (snapshot.data() as GameState).activeTeams;
+      activeTeams = next && next.length ? next : [...TEAM_COLORS];
+      emit();
+    });
+
+    const unsubscribe = () => {
+      unsubscribeTeams();
+      unsubscribeState();
+    };
     this.listeners.set('teams', unsubscribe);
     return unsubscribe;
   }
@@ -358,6 +564,31 @@ export class GameStateManager {
     };
   }
 
+  /** Put a question on the board (resets its answers first) and record it. */
+  async selectQuestion(questionId: string): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+    const currentRound = gameStateDoc.exists() ? gameStateDoc.data().currentRound : '';
+    const shouldReveal = ['round1', 'round3', 'pre-show'].includes(currentRound || '');
+
+    await this.hideAllAnswers(questionId);
+    await updateDoc(gameStateRef, {
+      currentQuestion: questionId,
+      questionRevealed: shouldReveal,
+      revealMode: 'one-by-one',
+      guessMode: false,
+      lastUpdated: serverTimestamp()
+    });
+
+    const questionDoc = await getDoc(doc(db, 'questions', questionId));
+    void this.recordEvent({
+      type: 'question_selected',
+      label: 'Question on board',
+      questionId,
+      detail: questionDoc.exists() ? (questionDoc.data() as Question).text : questionId
+    });
+  }
+
   // Update game state
   async updateGameState(updates: Partial<GameState>): Promise<void> {
     const gameStateRef = doc(db, 'gameState', 'current');
@@ -408,9 +639,20 @@ export class GameStateManager {
         await updateDoc(questionRef, { answers: updatedAnswers });
 
         // Add score to team if it's a team attribution (not host or neutral)
-        if (attribution === 'red' || attribution === 'green' || attribution === 'blue') {
+        const scoring = attribution === 'red' || attribution === 'green' || attribution === 'blue';
+        if (scoring) {
           await this.updateTeamScore(attribution, finalValue);
         }
+
+        void this.recordEvent({
+          type: 'answer_revealed',
+          label: scoring ? 'Answer revealed (scored)' : 'Answer revealed',
+          team: attribution,
+          questionId,
+          answerId,
+          detail: `"${answerToReveal.text}"`,
+          points: scoring ? finalValue : 0
+        });
       }
     }
   }
@@ -443,9 +685,23 @@ export class GameStateManager {
         await updateDoc(questionRef, { answers: updatedAnswers });
 
         // Remove score from team if it was a team attribution
-        if (answerToHide.attribution === 'red' || answerToHide.attribution === 'green' || answerToHide.attribution === 'blue') {
-          await this.updateTeamScore(answerToHide.attribution, -answerToHide.value);
+        const scored =
+          answerToHide.attribution === 'red' ||
+          answerToHide.attribution === 'green' ||
+          answerToHide.attribution === 'blue';
+        if (scored) {
+          await this.updateTeamScore(answerToHide.attribution as TeamColor, -answerToHide.value);
         }
+
+        void this.recordEvent({
+          type: 'answer_hidden',
+          label: 'Answer un-revealed',
+          team: answerToHide.attribution,
+          questionId,
+          answerId,
+          detail: `"${answerToHide.text}"`,
+          points: scored ? -answerToHide.value : 0
+        });
       }
     }
   }
@@ -612,7 +868,38 @@ export class GameStateManager {
   }
 
 
-  // Get audience members
+  /**
+   * Fetch just this voter's own record.
+   *
+   * The audience screen used to pull the whole collection and search it for
+   * itself, which required every phone to be able to read every other voter's
+   * contact details. Querying on authUid keeps it to one document and matches
+   * the `audience` read rule exactly, so Firestore can prove the query is safe.
+   */
+  async getMyVote(authUid: string): Promise<AudienceMember | null> {
+    const audienceRef = collection(db, 'audience');
+    const snapshot = await getDocs(query(audienceRef, where('authUid', '==', authUid)));
+    if (snapshot.empty) return null;
+    const docSnapshot = snapshot.docs[0];
+    return { id: docSnapshot.id, ...docSnapshot.data() } as AudienceMember;
+  }
+
+  /** Live view of this voter's own record (drives the confirmation screen). */
+  subscribeToMyVote(authUid: string, callback: (member: AudienceMember | null) => void): () => void {
+    const q = query(collection(db, 'audience'), where('authUid', '==', authUid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (snapshot.empty) {
+        callback(null);
+        return;
+      }
+      const docSnapshot = snapshot.docs[0];
+      callback({ id: docSnapshot.id, ...docSnapshot.data() } as AudienceMember);
+    });
+    this.listeners.set('myVote', unsubscribe);
+    return unsubscribe;
+  }
+
+  // Get audience members (operator only — see firestore.rules)
   async getAudienceMembers(): Promise<AudienceMember[]> {
     const audienceRef = collection(db, 'audience');
     const q = query(audienceRef, orderBy('submittedAt', 'desc'));
@@ -671,13 +958,23 @@ export class GameStateManager {
     document.body.removeChild(link);
   }
 
-  // Get audience voting results and update team dugout counts
-  // Changed to count unique voters per team (latest vote only)
+  /**
+   * Recount the dugouts from the current votes and publish the summary the big
+   * screen needs.
+   *
+   * The display used to read the whole `audience` collection just to show a
+   * submission count and the vote-shift list. That is the collection holding
+   * every voter's phone number and UPI id, so it can no longer be world-
+   * readable (see firestore.rules). Instead the operator — who has already read
+   * those documents — writes the derived summary into `gameState/current`,
+   * which is safe to publish: names and the horses moved between, no contact
+   * details beyond what the overlay puts on screen anyway.
+   */
   async updateAudienceVotingResults(): Promise<void> {
     const members = await this.getAudienceMembers();
 
     // Count votes per team based on LATEST votes only
-    // Since we use phone as ID, each member appears only once
+    // Since we use deviceId as ID, each member appears only once
     const voteCounts = {
       red: 0,
       green: 0,
@@ -696,6 +993,21 @@ export class GameStateManager {
       const teamRef = doc(db, 'teams', teamId);
       await updateDoc(teamRef, { dugoutCount: voteCounts[teamId] });
     }
+
+    await updateDoc(doc(db, 'gameState', 'current'), {
+      audienceSummary: {
+        count: members.length,
+        switchers: members
+          .filter(m => m.previousTeam != null && m.previousTeam !== m.team)
+          .map(m => ({
+            name: m.name,
+            upiId: m.upiId,
+            previousTeam: m.previousTeam as TeamColor,
+            currentTeam: m.team
+          }))
+      },
+      lastUpdated: serverTimestamp()
+    });
   }
 
   // Get team switchers - voters who changed teams in the latest voting round
@@ -742,6 +1054,12 @@ export class GameStateManager {
       }));
 
       await updateDoc(questionRef, { answers: updatedAnswers });
+      void this.recordEvent({
+        type: 'answers_revealed_all',
+        label: 'All answers revealed',
+        questionId,
+        detail: question.text
+      });
     }
   }
 
@@ -769,6 +1087,13 @@ export class GameStateManager {
     }
   }
 
+  /**
+   * Live-edit one answer while the show is running.
+   *
+   * If the answer is already revealed AND was scored to a team, the change in
+   * value is applied to that team's score as a delta — otherwise the board and
+   * the scoreboard would silently disagree.
+   */
   async updateAnswer(
     questionId: string,
     answerId: string,
@@ -776,13 +1101,149 @@ export class GameStateManager {
   ): Promise<void> {
     const questionRef = doc(db, 'questions', questionId);
     const questionDoc = await getDoc(questionRef);
-    if (questionDoc.exists()) {
-      const question = questionDoc.data() as Question;
-      const updatedAnswers = question.answers.map(answer =>
-        answer.id === answerId ? { ...answer, ...updates } : answer
-      );
-      await updateDoc(questionRef, { answers: updatedAnswers });
+    if (!questionDoc.exists()) return;
+
+    const question = questionDoc.data() as Question;
+    const before = question.answers.find(answer => answer.id === answerId);
+    if (!before) return;
+
+    const updatedAnswers = question.answers.map(answer =>
+      answer.id === answerId ? { ...answer, ...updates } : answer
+    );
+    await updateDoc(questionRef, { answers: updatedAnswers });
+
+    const nextValue = updates.value ?? before.value;
+    const delta = nextValue - before.value;
+    const scored =
+      before.revealed &&
+      (before.attribution === 'red' || before.attribution === 'green' || before.attribution === 'blue');
+    if (scored && delta !== 0) {
+      await this.updateTeamScore(before.attribution as TeamColor, delta);
     }
+
+    void this.recordEvent({
+      type: 'answer_edited',
+      label: scored && delta !== 0 ? 'Answer edited live (score adjusted)' : 'Answer edited live',
+      team: scored ? before.attribution : null,
+      questionId,
+      answerId,
+      detail: `"${updates.text ?? before.text}" @ ${nextValue}`,
+      points: scored && delta !== 0 ? delta : null
+    });
+  }
+
+  /** Live-edit a question's wording (and optional Round 2 teaser). */
+  async updateQuestionText(
+    questionId: string,
+    text: string,
+    displayText?: string
+  ): Promise<void> {
+    const questionRef = doc(db, 'questions', questionId);
+    const questionDoc = await getDoc(questionRef);
+    if (!questionDoc.exists()) return;
+
+    const updates: Record<string, unknown> = { text };
+    if (displayText !== undefined) {
+      updates.displayText = displayText.trim() ? displayText.trim() : deleteField();
+    }
+    await updateDoc(questionRef, updates);
+
+    void this.recordEvent({
+      type: 'question_edited',
+      label: 'Question text edited live',
+      questionId,
+      detail: text
+    });
+  }
+
+  /** Add an answer to a question mid-show. */
+  async addAnswer(questionId: string, text: string, value: number): Promise<void> {
+    const questionRef = doc(db, 'questions', questionId);
+    const questionDoc = await getDoc(questionRef);
+    if (!questionDoc.exists()) return;
+
+    const question = questionDoc.data() as Question;
+    const answer: Answer = {
+      id: `${questionId}_answer_${Date.now()}`,
+      text,
+      value,
+      revealed: false,
+      attribution: null
+    };
+    const answers = [...question.answers, answer];
+    await updateDoc(questionRef, { answers, answerCount: answers.length });
+
+    void this.recordEvent({
+      type: 'answer_added',
+      label: 'Answer added live',
+      questionId,
+      answerId: answer.id,
+      detail: `"${text}" @ ${value}`
+    });
+  }
+
+  /** Remove an answer. A revealed+scored answer gives its points back first. */
+  async deleteAnswer(questionId: string, answerId: string): Promise<void> {
+    const questionRef = doc(db, 'questions', questionId);
+    const questionDoc = await getDoc(questionRef);
+    if (!questionDoc.exists()) return;
+
+    const question = questionDoc.data() as Question;
+    const answer = question.answers.find(a => a.id === answerId);
+    if (!answer) return;
+
+    const answers = question.answers.filter(a => a.id !== answerId);
+    await updateDoc(questionRef, { answers, answerCount: answers.length });
+
+    const scored =
+      answer.revealed &&
+      (answer.attribution === 'red' || answer.attribution === 'green' || answer.attribution === 'blue');
+    if (scored) {
+      await this.updateTeamScore(answer.attribution as TeamColor, -answer.value);
+    }
+
+    void this.recordEvent({
+      type: 'answer_deleted',
+      label: scored ? 'Answer deleted live (score returned)' : 'Answer deleted live',
+      team: scored ? answer.attribution : null,
+      questionId,
+      answerId,
+      detail: `"${answer.text}"`,
+      points: scored ? -answer.value : null
+    });
+  }
+
+  /** Delete a whole question from the bank mid-show. */
+  async deleteQuestion(questionId: string): Promise<void> {
+    const questionRef = doc(db, 'questions', questionId);
+    const questionDoc = await getDoc(questionRef);
+    if (!questionDoc.exists()) return;
+    const question = questionDoc.data() as Question;
+
+    await deleteDoc(questionRef);
+
+    // Clear it out of anywhere the game still points at it.
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+    if (gameStateDoc.exists()) {
+      const state = gameStateDoc.data() as GameState;
+      const updates: Record<string, unknown> = { lastUpdated: serverTimestamp() };
+      if (state.currentQuestion === questionId) {
+        updates.currentQuestion = null;
+        updates.questionRevealed = false;
+      }
+      if ((state.round2Options || []).includes(questionId)) {
+        updates.round2Options = (state.round2Options || []).filter(id => id !== questionId);
+      }
+      if (Object.keys(updates).length > 1) await updateDoc(gameStateRef, updates);
+    }
+
+    void this.recordEvent({
+      type: 'question_deleted',
+      label: 'Question deleted',
+      questionId,
+      detail: question.text
+    });
   }
 
   // Clear all questions from the database
@@ -865,7 +1326,9 @@ export class GameStateManager {
       // End show state
       showEndScreen: false,
       // Brand state
-      activeBrandQuestionId: null
+      activeBrandQuestionId: null,
+      // Round 3 prize bucket back to the standard opening figure
+      round3BucketTotal: ROUND3_START_BUCKET
     });
     console.log('GameState: Game state reset in Firestore (including Round 2 fields)');
 
@@ -905,10 +1368,93 @@ export class GameStateManager {
     const deletePromises = audienceSnapshot.docs.map(docSnapshot => deleteDoc(docSnapshot.ref));
     await Promise.all(deletePromises);
 
+    // Wipe the show timeline and open a fresh one with the reset as row 1.
+    await this.clearTimeline();
+    await this.recordEvent({
+      type: 'game_reset',
+      label: 'GAME RESET',
+      detail: 'scores, reveals, votes and timeline cleared'
+    });
+
     // Force a small delay to ensure Firebase updates are processed
     await new Promise(resolve => setTimeout(resolve, 500));
 
     console.log('GameStateManager: Game reset completed');
+  }
+
+  /**
+   * Open or close audience voting.
+   *
+   * Closing bumps the voting round (so the next open is a fresh round) and
+   * re-counts the dugouts, in one place — the control panel used to do this
+   * inline and it is easy to get half-done.
+   */
+  async setAudienceWindow(open: boolean): Promise<void> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+    const state = gameStateDoc.exists() ? (gameStateDoc.data() as GameState) : null;
+
+    if (open) {
+      await updateDoc(gameStateRef, { audienceWindow: true, lastUpdated: serverTimestamp() });
+      void this.recordEvent({
+        type: 'voting_open',
+        label: 'Audience voting OPENED',
+        detail: `round ${state?.votingRound ?? 1}`
+      });
+      return;
+    }
+
+    await updateDoc(gameStateRef, {
+      audienceWindow: false,
+      votingRound: (state?.votingRound ?? 1) + 1,
+      lastUpdated: serverTimestamp()
+    });
+    await this.updateAudienceVotingResults();
+
+    const members = await this.getAudienceMembers();
+    const counts: Record<string, number> = {};
+    for (const color of state?.activeTeams ?? TEAM_COLORS) counts[color] = 0;
+    for (const member of members) {
+      if (counts[member.team] !== undefined) counts[member.team]++;
+    }
+    void this.recordEvent({
+      type: 'voting_closed',
+      label: 'Audience voting CLOSED',
+      detail: Object.entries(counts)
+        .map(([team, n]) => `${team.toUpperCase()}: ${n}`)
+        .join(', ')
+    });
+  }
+
+  /** Manual score nudge from the control panel (recorded on the timeline). */
+  async adjustScore(teamId: TeamColor, delta: number): Promise<void> {
+    await this.updateTeamScore(teamId, delta);
+    void this.recordEvent({
+      type: 'score_adjusted',
+      label: 'Manual score change',
+      team: teamId,
+      detail: `${delta >= 0 ? '+' : ''}${delta}`,
+      points: delta
+    });
+  }
+
+  /** Round 3 wrong answer: the team pays a penalty into the shared bucket. */
+  async applyRound3Penalty(teamId: TeamColor, penalty: number): Promise<number> {
+    const gameStateRef = doc(db, 'gameState', 'current');
+    const gameStateDoc = await getDoc(gameStateRef);
+    const bucket = ((gameStateDoc.data()?.round3BucketTotal as number) ?? 0) + penalty;
+
+    await this.updateTeamScore(teamId, -penalty);
+    await updateDoc(gameStateRef, { round3BucketTotal: bucket, lastUpdated: serverTimestamp() });
+
+    void this.recordEvent({
+      type: 'round3_penalty',
+      label: 'Round 3 penalty to bucket',
+      team: teamId,
+      detail: `bucket now ₹${bucket}`,
+      points: -penalty
+    });
+    return bucket;
   }
 
   // Cleanup listeners
@@ -938,6 +1484,7 @@ export class GameStateManager {
       timerActive: false,
       lastUpdated: serverTimestamp()
     });
+    void this.recordEvent({ type: 'round_start', label: 'Pre-Show started' });
   }
 
   /**
@@ -967,7 +1514,7 @@ export class GameStateManager {
       timerActive: false,
       lastUpdated: serverTimestamp()
     });
-    console.log('Game reset completed - Round 2 options cleared');
+    void this.recordEvent({ type: 'round_start', label: 'Round 1 started' });
   }
 
   /**
@@ -991,6 +1538,7 @@ export class GameStateManager {
               activeTeam: team,
               lastUpdated: serverTimestamp()
             });
+            void this.recordEvent({ type: 'turn', label: 'Team on the buzzer', team, questionId: state.currentQuestion });
           }
         } else {
           // For pre-show and round3, just set the team (no strike checking)
@@ -999,6 +1547,7 @@ export class GameStateManager {
             activeTeam: team,
             lastUpdated: serverTimestamp()
           });
+          void this.recordEvent({ type: 'turn', label: 'Team on the buzzer', team, questionId: state.currentQuestion });
         }
       }
     }
@@ -1052,6 +1601,13 @@ export class GameStateManager {
         round1CurrentGuessingTeam: null,
         activeTeam: null,
         lastUpdated: serverTimestamp(),
+      });
+      void this.recordEvent({
+        type: 'guess_wrong',
+        label: 'Wrong guess (Big X)',
+        team: guessingTeam,
+        questionId: state.currentQuestion,
+        points: 0
       });
     }
 
@@ -1113,6 +1669,7 @@ export class GameStateManager {
       revealMode: 'one-by-one',
       lastUpdated: serverTimestamp()
     });
+    void this.recordEvent({ type: 'round_start', label: 'Round 2 started' });
   }
 
   /**
@@ -1132,6 +1689,7 @@ export class GameStateManager {
           round1CurrentGuessingTeam: null, // Double check: ensure Round 1 team is cleared
           lastUpdated: serverTimestamp()
         });
+        void this.recordEvent({ type: 'turn', label: 'Team playing Round 2', team });
       }
     }
   }
@@ -1190,6 +1748,7 @@ export class GameStateManager {
       timerDuration: duration,
       lastUpdated: serverTimestamp()
     });
+    void this.recordEvent({ type: 'timer_start', label: 'Timer started', detail: `${duration}s` });
   }
 
   /**
@@ -1202,6 +1761,7 @@ export class GameStateManager {
       timerStartTime: null,
       lastUpdated: serverTimestamp()
     });
+    void this.recordEvent({ type: 'timer_stop', label: 'Timer stopped' });
   }
 
 
@@ -1243,6 +1803,7 @@ export class GameStateManager {
       round2State: null,
       lastUpdated: serverTimestamp()
     });
+    void this.recordEvent({ type: 'round_start', label: 'Round 3 started' });
   }
 }
 

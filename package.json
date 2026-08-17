@@ -14,9 +14,12 @@
     "export": "next build",
     "export:test": "cross-env NEXT_PUBLIC_FIREBASE_ENV=testing next build",
     "export:prod": "cross-env NEXT_PUBLIC_FIREBASE_ENV=production next build",
-    "deploy": "npm run export:test && firebase deploy -P testing",
-    "deploy:test": "npm run export:test && firebase deploy -P testing --only hosting",
-    "deploy:prod": "npm run export:prod && firebase deploy -P production --only hosting"
+    "deploy": "npm run export:prod && firebase deploy -P hosting --only hosting:backup",
+    "deploy:test": "npm run export:prod && firebase deploy -P hosting --only hosting:backup",
+    "deploy:prod": "npm run export:prod && firebase deploy -P hosting --only hosting:backup",
+    "deploy:rules:test": "firebase deploy -P data --only firestore:rules",
+    "deploy:rules:prod": "firebase deploy -P data --only firestore:rules",
+    "deploy:rules": "firebase deploy -P data --only firestore:rules"
   },
   "dependencies": {
     "@types/canvas-confetti": "^1.9.0",
@@ -26,7 +29,8 @@
     "papaparse": "^5.5.3",
     "react": "^18",
     "react-dom": "^18",
-    "react-icons": "^5.5.0"
+    "react-icons": "^5.5.0",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -1,7 +1,16 @@
 {
   "projects": {
     "default": "akal-ke-ghode-test",
-    "production": "bachelore-gameshow",
-    "testing": "akal-ke-ghode-test"
+    "hosting": "akal-ke-ghode-test",
+    "data": "akal-ke-ghode-live-997d9"
+  },
+  "targets": {
+    "akal-ke-ghode-test": {
+      "hosting": {
+        "backup": [
+          "akal-ke-ghode-test"
+        ]
+      }
+    }
   }
 }

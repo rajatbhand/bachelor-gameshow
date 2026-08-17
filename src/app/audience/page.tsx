@@ -46,7 +46,9 @@ export default function AudiencePage() {
   const [isExistingVoter, setIsExistingVoter] = useState(false);
   const [existingVoterData, setExistingVoterData] = useState<{ name: string; phone: string; upiId: string } | null>(null);
   const [previousVotingState, setPreviousVotingState] = useState<boolean | null>(null); // null = not yet initialized
-  const [audienceMembers, setAudienceMembers] = useState<AudienceMember[]>([]);
+  // This phone's own record only — the audience screen no longer reads other
+  // voters' documents (their phone numbers and UPI ids live there).
+  const [myVote, setMyVote] = useState<AudienceMember | null>(null);
 
   // Subscribe to real-time game state and teams
   useEffect(() => {
@@ -70,75 +72,59 @@ export default function AudiencePage() {
       setTeams(teamsData);
     });
 
-    // Subscribe to audience members for real-time vote counts
-    const unsubscribeAudience = gameStateManager.subscribeToAudienceMembers((members) => {
-      setAudienceMembers(members);
-    });
+    const unsubscribeMyVote = user
+      ? gameStateManager.subscribeToMyVote(user.uid, setMyVote)
+      : () => {};
 
     return () => {
       unsubscribeGameState();
       unsubscribeTeams();
-      unsubscribeAudience();
+      unsubscribeMyVote();
     };
-  }, [submitted, previousVotingState]);
+  }, [submitted, previousVotingState, user]);
 
-  // Check if user has voted before (existing voter) - ONLY on initial mount and user/gameState changes
+  /**
+   * Drive this phone's screen from its own vote record, which arrives live over
+   * `subscribeToMyVote`. One document, matched on the signed-in account — the
+   * page never reads other voters' records.
+   */
   useEffect(() => {
-    const checkExistingVoter = async () => {
-      if (!user || !gameState) return;
+    if (!gameState) return;
 
-      const deviceId = getOrCreateDeviceId();
+    if (!myVote) {
+      // New voter - reset states
+      setIsExistingVoter(false);
+      setExistingVoterData(null);
+      setSubmitted(false);
+      setSubmittedTeam(null);
+      return;
+    }
 
-      // Fetch once on mount to check initial state - don't re-check on every audience update
-      const members = await gameStateManager.getAudienceMembers();
-      const existingVote = members.find(
-        m => m.deviceId === deviceId || m.authUid === user.uid
-      );
+    setIsExistingVoter(true);
+    setExistingVoterData({
+      name: myVote.name,
+      phone: myVote.phone,
+      upiId: myVote.upiId
+    });
 
-      if (existingVote) {
-        setIsExistingVoter(true);
-        setExistingVoterData({
-          name: existingVote.name,
-          phone: existingVote.phone,
-          upiId: existingVote.upiId
-        });
+    // Check if they've voted in the current voting round
+    const votedInCurrentRound = myVote.votingRound === gameState.votingRound;
 
-        // Check if they've voted in the current voting round
-        const votedInCurrentRound = existingVote.votingRound === gameState.votingRound;
-
-        if (votedInCurrentRound) {
-          // Voted in current round
-          if (gameState.audienceWindow) {
-            // Voting is open - show success screen
-            setSubmitted(true);
-            setSubmittedTeam(existingVote.team);
-          } else {
-            // Voting is closed - show new UI with their selection
-            setSubmitted(false);
-            setSubmittedTeam(existingVote.team);
-          }
-        } else {
-          // Voted in a previous round but not current round
-          if (!gameState.audienceWindow) {
-            // Voting is closed - show new UI with their previous selection
-            setSubmitted(false);
-            setSubmittedTeam(existingVote.team);
-          } else {
-            // Voting is open - allow them to vote again (round 2+)
-            setSubmitted(false);
-            setSubmittedTeam(null);
-          }
-        }
-      } else {
-        // New voter - reset states
-        setSubmitted(false);
-        setSubmittedTeam(null);
-      }
-    };
-
-    checkExistingVoter();
+    if (votedInCurrentRound) {
+      // Voting open -> confirmation screen; closed -> just show their pick
+      setSubmitted(Boolean(gameState.audienceWindow));
+      setSubmittedTeam(myVote.team);
+    } else if (!gameState.audienceWindow) {
+      // Voted in a previous round, voting closed - show their previous selection
+      setSubmitted(false);
+      setSubmittedTeam(myVote.team);
+    } else {
+      // A new round is open - they can move horses
+      setSubmitted(false);
+      setSubmittedTeam(null);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, gameState?.votingRound, gameState?.audienceWindow]);
+  }, [myVote, gameState?.votingRound, gameState?.audienceWindow]);
 
   const handleGoogleSignIn = async () => {
     if (!termsAccepted) {
@@ -458,7 +444,8 @@ export default function AudiencePage() {
             <div className="space-y-2">
               {teams.map((team) => {
                 // Calculate vote count from real-time audience members data
-                const voteCount = audienceMembers.filter(m => m.team === team.id).length;
+                // Server-recounted dugout total, not a scan of everyone's votes.
+                const voteCount = team.dugoutCount;
 
                 return (
                   <div key={team.id} className="flex justify-between items-center bg-white p-3 rounded-lg">
@@ -558,11 +545,7 @@ export default function AudiencePage() {
               {/* User's Choice Section */}
               <div className="mb-4">
                 <h2 className="text-lg font-bold text-gray-900">Your Choice</h2>
-                {[
-                  { id: 'red', name: 'Red', color: '#ef4444' },
-                  { id: 'green', name: 'Green', color: '#22c55e' },
-                  { id: 'blue', name: 'Blue', color: '#3b82f6' }
-                ].filter(teamOption => teamOption.id === submittedTeam).map((teamOption) => {
+                {teams.filter(teamOption => teamOption.id === submittedTeam).map((teamOption) => {
                   const teamData = teams.find(t => t.id === teamOption.id);
                   // Map team to 100-tone background color
                   const bgColorClass = {
@@ -599,11 +582,7 @@ export default function AudiencePage() {
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Other Teams</h2>
                 <div className="space-y-2">
-                  {[
-                    { id: 'red', name: 'Red', color: '#ef4444' },
-                    { id: 'green', name: 'Green', color: '#22c55e' },
-                    { id: 'blue', name: 'Blue', color: '#3b82f6' }
-                  ].filter(teamOption => teamOption.id !== submittedTeam).map((teamOption) => {
+                  {teams.filter(teamOption => teamOption.id !== submittedTeam).map((teamOption) => {
                     const teamData = teams.find(t => t.id === teamOption.id);
                     return (
                       <div
@@ -638,12 +617,8 @@ export default function AudiencePage() {
             // Original layout when voting is OPEN
             <>
               <h2 className="text-lg font-bold text-gray-900 mb-3">Select Your Team</h2>
-              <div className="grid grid-cols-3 gap-1">
-                {[
-                  { id: 'red', name: 'Red', color: '#ef4444' },
-                  { id: 'green', name: 'Green', color: '#22c55e' },
-                  { id: 'blue', name: 'Blue', color: '#3b82f6' }
-                ].map((teamOption) => {
+              <div className={`grid gap-1 ${teams.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                {teams.map((teamOption) => {
                   const teamData = teams.find(t => t.id === teamOption.id);
                   return (
                     <button

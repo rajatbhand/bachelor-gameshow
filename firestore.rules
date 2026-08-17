@@ -1,10 +1,82 @@
 rules_version = '2';
+
+// Firestore rules for the NO-SERVER BACKUP app (and the shared project used by
+// the server-backed app in bachelor-gameshow-live/).
+//
+// The rules this app shipped with were `allow read, write: if true` on every
+// path. These keep the parts that can be tightened without giving the operator
+// console a login it does not have.
+//
+// KNOWN, ACCEPTED EXPOSURE (operator decision, 2026-08-16):
+// `audience` documents stay READABLE without any credential, because this app
+// has no server and no signed-in operator identity, so Firestore cannot tell
+// the control panel apart from a stranger. That means voter name / phone / UPI
+// can be read by anyone who knows the project id. Writes are still locked down
+// (see below), so nobody can forge or alter a vote.
+//
+// To close the read hole later: re-add an `operators/{uid}` allowlist, gate the
+// `audience` read on it, and sign the control panel in with a crew account.
+//
+// `gameState` is likewise open: the display and audience screens need it with no
+// credential, and the live server mirrors state here for mid-show carryover.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow read/write access to all documents for now
-    // In production, you should implement proper authentication
-    match /{document=**} {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // ── Audience votes ──────────────────────────────────────────────────────
+    match /audience/{deviceId} {
+      // Open — the operator console reads this with no credential.
+      allow read: if true;
+
+      // Writes are NOT open: a voter may only create and edit their own record,
+      // so nobody can stuff the ballot or rewrite someone else's vote.
+      allow create: if signedIn()
+                    && request.resource.data.authUid == request.auth.uid
+                    && request.resource.data.team in ['red', 'green', 'blue'];
+
+      allow update: if signedIn()
+                    && resource.data.authUid == request.auth.uid
+                    && request.resource.data.authUid == request.auth.uid
+                    && request.resource.data.team in ['red', 'green', 'blue'];
+
+      // Clearing votes is part of the operator's reset flow, which has no login.
+      allow delete: if true;
+    }
+
+    // ── Game state, teams, questions ────────────────────────────────────────
+    match /gameState/{document} {
       allow read, write: if true;
+    }
+
+    match /teams/{teamId} {
+      allow read, write: if true;
+    }
+
+    match /questions/{questionId} {
+      allow read, write: if true;
+    }
+
+    match /brand_questions/{questionId} {
+      allow read, write: if true;
+    }
+
+    // ── Failover switch ─────────────────────────────────────────────────────
+    // Its own document so the live server's full-overwrite mirror of
+    // gameState/live can never wipe it. Both operators must be able to flip it
+    // even when the server is down.
+    //
+    // DEPLOY NOTE: if this rule is missing, the failover switch fails silently.
+    match /control/{document} {
+      allow read, write: if true;
+    }
+
+    // Anything not named above is closed.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

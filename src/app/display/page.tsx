@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { gameStateManager } from '@/lib/gameState';
-import type { GameState, Question, Team, BrandQuestion, AudienceMember } from '@/lib/gameState';
+import type { GameState, Question, Team, BrandQuestion } from '@/lib/gameState';
 import React from 'react';
 import { Bebas_Neue } from 'next/font/google';
 import confetti from 'canvas-confetti';
@@ -28,7 +28,9 @@ export default function DisplayPage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
-  const [audienceMembers, setAudienceMembers] = useState<AudienceMember[]>([]);
+  // Derived from gameState.audienceSummary, NOT from the audience collection —
+  // the big screen must never need read access to voters' phone numbers.
+  const [audienceCount, setAudienceCount] = useState(0);
   const [teamSwitchers, setTeamSwitchers] = useState<Array<{ name: string; upiId: string; previousTeam: 'red' | 'green' | 'blue'; currentTeam: 'red' | 'green' | 'blue' }>>([]);
   const [activeBrandQuestion, setActiveBrandQuestion] = useState<BrandQuestion | null>(null);
   const [scoreAnimation, setScoreAnimation] = useState<{ show: boolean; amount: number; team: string }>({
@@ -192,6 +194,8 @@ export default function DisplayPage() {
     // Subscribe to real-time updates
     const unsubscribeGameState = gameStateManager.subscribeToGameState((state) => {
       setGameState(state);
+      setAudienceCount(state.audienceSummary?.count ?? 0);
+      setTeamSwitchers(state.audienceSummary?.switchers ?? []);
     });
 
     const unsubscribeTeams = gameStateManager.subscribeToTeams((teamsData) => {
@@ -202,13 +206,6 @@ export default function DisplayPage() {
       setCurrentQuestion(question);
     });
 
-    // Subscribe to audience members
-    const unsubscribeAudience = gameStateManager.subscribeToAudienceMembers((members) => {
-      setAudienceMembers(members);
-      // Update team switchers when audience members change
-      gameStateManager.getTeamSwitchers().then(setTeamSwitchers).catch(console.error);
-    });
-
     const unsubscribeBrandQuestion = gameStateManager.subscribeToBrandQuestion((question) => {
       setActiveBrandQuestion(question);
     });
@@ -217,7 +214,6 @@ export default function DisplayPage() {
       unsubscribeGameState();
       unsubscribeTeams();
       unsubscribeQuestion();
-      unsubscribeAudience();
       unsubscribeBrandQuestion();
     };
   }, []);
@@ -384,11 +380,16 @@ export default function DisplayPage() {
                     <div className="text-white flex items-center gap-2">
                       <div className="w-4 h-4 animate-pulse rounded-full bg-green-600"></div>
                       <div className="text-3xl tracking-wide font-bold"> AUDIENCE VOTING OPEN</div>
-                      <div className="tracking-wide text-3xl">({audienceMembers.length} submissions)</div>
+                      <div className="tracking-wide text-3xl">({audienceCount} submissions)</div>
                     </div>
                   </div>
                 )}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className={`grid grid-cols-1 gap-4 ${Object.keys(switchCounts).length === 1
+                  ? 'md:grid-cols-1 max-w-md mx-auto'
+                  : Object.keys(switchCounts).length === 2
+                    ? 'md:grid-cols-2 max-w-3xl mx-auto'
+                    : 'md:grid-cols-3'
+                  }`}>
                   {Object.entries(switchCounts).map(([transition, count]) => {
                     const [prevTeamId, currTeamId] = transition.split('->');
                     const prevTeam = teams.find(t => t.id === prevTeamId);
@@ -449,7 +450,14 @@ export default function DisplayPage() {
         {gameState?.currentRound === 'round2' && round2Options.length > 0 && !gameState?.round2State && (
           <div className="max-w-7xl mx-auto">
             <h2 className="text-4xl font-bold text-center mb-12 text-indigo-300">Choose Your Question</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className={`grid grid-cols-1 gap-8 ${round2Options.length === 1
+              ? 'md:grid-cols-1 max-w-xl mx-auto'
+              : round2Options.length === 2
+                ? 'md:grid-cols-2 max-w-4xl mx-auto'
+                : round2Options.length === 4
+                  ? 'md:grid-cols-2 max-w-4xl mx-auto'
+                  : 'md:grid-cols-3'
+              }`}>
               {round2Options.map((q) => (
                 <div key={q.id} className="bg-indigo-900/50 border-4 border-indigo-500 rounded-xl p-8 flex items-center justify-center min-h-[300px] transform hover:scale-105 transition-transform duration-300 shadow-2xl">
                   <div className="text-center">
@@ -596,12 +604,12 @@ export default function DisplayPage() {
           <div className="bg-gray-900 rounded-lg p-8 max-w-6xl w-full mx-4 max-h-screen overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="text-5xl font-bold text-center mb-8 text-white tracking-wide">SCOREBOARD</h2>
-              <p className="text-3xl font-bold text-white tracking-wide">Total Votes: {audienceMembers.length}</p>
+              <p className="text-3xl font-bold text-white tracking-wide">Total Votes: {audienceCount}</p>
             </div>
 
 
             {/* Team Scores, Dugout, and Vote Shifts */}
-            <div className="grid grid-cols-3 gap-8 mb-8">
+            <div className={`grid gap-8 mb-8 ${teams.length === 2 ? 'grid-cols-2 max-w-4xl mx-auto' : 'grid-cols-3'}`}>
               {teams.map((team) => {
                 // Calculate vote shifts for this team
                 const shiftsToThisTeam = teamSwitchers.filter(s => s.currentTeam === team.id && s.previousTeam !== team.id);
@@ -660,7 +668,7 @@ export default function DisplayPage() {
             <h2 className="text-6xl font-bold text-center mb-8 text-yellow-400 tracking-wide">🔄 VOTE SHIFTS</h2>
 
             {/* Team Vote Shifts */}
-            <div className="grid grid-cols-3 gap-8 mb-8">
+            <div className={`grid gap-8 mb-8 ${teams.length === 2 ? 'grid-cols-2 max-w-4xl mx-auto' : 'grid-cols-3'}`}>
               {teams.map((team) => {
                 // Calculate vote shifts for this team
                 const shiftsToThisTeam = teamSwitchers.filter(s => s.currentTeam === team.id && s.previousTeam !== team.id);

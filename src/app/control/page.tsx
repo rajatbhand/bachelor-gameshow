@@ -1,8 +1,20 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { gameStateManager, GameState, Team, Question, BrandQuestion, AudienceMember } from '@/lib/gameState';
+import {
+  gameStateManager,
+  GameState,
+  Team,
+  Question,
+  BrandQuestion,
+  AudienceMember,
+  TimelineEvent,
+  TeamColor,
+  TeamMode
+} from '@/lib/gameState';
 import { useControlAccess } from '@/contexts/ControlAccessContext';
+import { downloadShowWorkbook } from '@/lib/workbook';
+import { useBackupMode } from '@/lib/useBackupMode';
 import Papa from 'papaparse';
 import {
   collection,
@@ -20,6 +32,9 @@ export default function ControlPage() {
   const { isAuthenticated, authenticate, logout } = useControlAccess();
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
+
+  // Failover: this app only drives the show when backupMode is ON.
+  const { backupMode, setBackupMode } = useBackupMode();
 
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -44,12 +59,31 @@ export default function ControlPage() {
   const [round2TimerDuration, setRound2TimerDuration] = useState<string>('90');
   const [round3PenaltyAmount, setRound3PenaltyAmount] = useState<string>('0');
   const [round3BucketTotal, setRound3BucketTotal] = useState<string>('6000');
+  // True while the operator is typing in the bucket field. The field is a draft
+  // of a value that lives in game state, so it has to accept live updates from
+  // elsewhere WITHOUT yanking the number out from under someone mid-edit.
+  const bucketFocused = useRef(false);
   const [episodeInfo, setEpisodeInfo] = useState('');
   const [manualScoreInputs, setManualScoreInputs] = useState<{ [key: string]: string }>({ red: '', green: '', blue: '' });
 
-  // Edit Answers panel state
-  const [editAnswerDrafts, setEditAnswerDrafts] = useState<Record<string, { text: string; value: string }>>({});
-  const [editAnswersPanelOpen, setEditAnswersPanelOpen] = useState(false);
+  // Draft for the "add an answer" row inside the Question Bank editor.
+  const [newAnswerDraft, setNewAnswerDraft] = useState({ text: '', value: '' });
+
+  // Question Bank editor — edit ANY question mid-show, not just the active one
+  const [bankEditingId, setBankEditingId] = useState<string | null>(null);
+  const [bankEditDraft, setBankEditDraft] = useState<{
+    text: string;
+    displayText: string;
+    answers: { id: string; text: string; value: string; revealed: boolean }[];
+  } | null>(null);
+
+  // Show timeline (sheet 2 of the export) + team format
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [modeDraft, setModeDraft] = useState<{ mode: TeamMode; a: TeamColor; b: TeamColor }>({
+    mode: '3-horse',
+    a: 'red',
+    b: 'blue'
+  });
 
   // Brand Section State
   const [brandQuestions, setBrandQuestions] = useState<BrandQuestion[]>([]);
@@ -201,42 +235,180 @@ export default function ControlPage() {
 
     const unsubscribeQuestionsPromise = loadQuestionsFromFirebase();
     const unsubscribeBrandQuestionsPromise = loadBrandQuestionsFromFirebase();
+    const unsubscribeTimeline = gameStateManager.subscribeToTimeline(setTimeline);
 
     return () => {
       unsubscribeGameState();
       unsubscribeTeams();
       unsubscribeQuestion();
       unsubscribeAudience();
+      unsubscribeTimeline();
       unsubscribeQuestionsPromise.then(unsubscribe => unsubscribe && unsubscribe());
       unsubscribeBrandQuestionsPromise.then(unsubscribe => unsubscribe && unsubscribe());
     };
   }, []);
 
-  // Sync edit drafts when the active question changes (dep on .id only to avoid resetting mid-edit on real-time updates)
+  // Keep the prize bucket field in step with the game. Without this the field
+  // kept whatever was last typed, so the panel and the display could disagree
+  // and a penalty would be applied to the stored value rather than the shown one.
   useEffect(() => {
-    if (!currentQuestion) { setEditAnswerDrafts({}); return; }
-    const drafts: Record<string, { text: string; value: string }> = {};
-    currentQuestion.answers.forEach(answer => {
-      drafts[answer.id] = { text: answer.text, value: String(answer.value) };
-    });
-    setEditAnswerDrafts(drafts);
-  }, [currentQuestion?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (bucketFocused.current) return;
+    const stored = gameState?.round3BucketTotal;
+    if (stored === undefined || stored === null) return;
+    setRound3BucketTotal(String(stored));
+  }, [gameState?.round3BucketTotal]);
 
-  const handleUpdateAnswer = async (answerId: string) => {
-    if (!currentQuestion) return;
-    const draft = editAnswerDrafts[answerId];
-    if (!draft) return;
-    const parsedValue = parseInt(draft.value, 10);
-    if (isNaN(parsedValue)) { alert('Value must be a number'); return; }
+  // Keep the format picker in step with the stored format.
+  useEffect(() => {
+    if (!gameState?.activeTeams) return;
+    setModeDraft({
+      mode: gameState.teamMode ?? '3-horse',
+      a: gameState.activeTeams[0] ?? 'red',
+      b: gameState.activeTeams[1] ?? 'blue'
+    });
+  }, [gameState?.teamMode, gameState?.activeTeams]);
+
+  const handleSetTeamMode = async () => {
+    const { mode, a, b } = modeDraft;
+    if (mode === '2v2' && a === b) {
+      alert('Pick two different horses for a 2v2.');
+      return;
+    }
     setLoading(true);
     try {
-      await gameStateManager.updateAnswer(currentQuestion.id, answerId, {
-        text: draft.text.trim(),
-        value: parsedValue
-      });
+      await gameStateManager.setTeamMode(mode, mode === '2v2' ? [a, b] : ['red', 'green', 'blue']);
     } catch (error) {
-      console.error('Error updating answer:', error);
-      alert('Failed to save answer. Check console.');
+      console.error('Error setting team mode:', error);
+      alert('Could not change the format. Check the console.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Keep the open bank editor in step with Firestore after an answer is added
+   * or deleted. In-progress text edits are preserved by matching on answer id;
+   * only the rows themselves are re-synced.
+   */
+  useEffect(() => {
+    if (!bankEditingId) return;
+    const question = loadedQuestions.find(q => q.id === bankEditingId);
+    if (!question) { closeBankEditor(); return; }
+    setBankEditDraft(prev => {
+      if (!prev) return prev;
+      if (prev.answers.length === question.answers.length) return prev;
+      return {
+        ...prev,
+        answers: question.answers.map(a => {
+          const existing = prev.answers.find(d => d.id === a.id);
+          return existing
+            ? { ...existing, revealed: a.revealed }
+            : { id: a.id, text: a.text, value: String(a.value), revealed: a.revealed };
+        })
+      };
+    });
+  }, [bankEditingId, loadedQuestions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ========== LIVE QUESTION EDITING ==========
+
+  /** Add an answer to any question in the bank, mid-show. */
+  const handleAddAnswer = async (questionId: string) => {
+    if (!newAnswerDraft.text.trim()) return;
+    setLoading(true);
+    try {
+      await gameStateManager.addAnswer(
+        questionId,
+        newAnswerDraft.text.trim(),
+        parseInt(newAnswerDraft.value, 10) || 0
+      );
+      setNewAnswerDraft({ text: '', value: '' });
+    } catch (error) {
+      console.error('Error adding answer:', error);
+      alert('Failed to add the answer. Check the console.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteAnswer = async (questionId: string, answerId: string, answerText: string) => {
+    if (!confirm(`Delete the answer "${answerText}"? If it was revealed and scored, the points are returned.`)) return;
+    setLoading(true);
+    try {
+      await gameStateManager.deleteAnswer(questionId, answerId);
+    } catch (error) {
+      console.error('Error deleting answer:', error);
+      alert('Failed to delete the answer. Check the console.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openBankEditor = (question: Question) => {
+    setBankEditingId(question.id);
+    setBankEditDraft({
+      text: question.text,
+      displayText: question.displayText ?? '',
+      answers: question.answers.map(a => ({
+        id: a.id,
+        text: a.text,
+        value: String(a.value),
+        revealed: a.revealed
+      }))
+    });
+  };
+
+  const closeBankEditor = () => {
+    setBankEditingId(null);
+    setBankEditDraft(null);
+  };
+
+  /** Save every changed field of the question being edited, in one go. */
+  const saveBankEditor = async () => {
+    if (!bankEditingId || !bankEditDraft) return;
+    const original = loadedQuestions.find(q => q.id === bankEditingId);
+    if (!original) return;
+
+    setLoading(true);
+    try {
+      if (
+        bankEditDraft.text.trim() !== original.text ||
+        bankEditDraft.displayText.trim() !== (original.displayText ?? '')
+      ) {
+        await gameStateManager.updateQuestionText(
+          bankEditingId,
+          bankEditDraft.text.trim(),
+          bankEditDraft.displayText.trim()
+        );
+      }
+      for (const draft of bankEditDraft.answers) {
+        const before = original.answers.find(a => a.id === draft.id);
+        if (!before) continue;
+        const value = parseInt(draft.value, 10);
+        if (isNaN(value)) throw new Error(`"${draft.text}" has a non-numeric value`);
+        if (draft.text.trim() === before.text && value === before.value) continue;
+        await gameStateManager.updateAnswer(bankEditingId, draft.id, {
+          text: draft.text.trim(),
+          value
+        });
+      }
+      closeBankEditor();
+    } catch (error) {
+      console.error('Error saving question edits:', error);
+      alert(`Could not save: ${(error as Error).message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteQuestion = async (question: Question) => {
+    if (!confirm(`Delete question ${question.id}? This removes it from the bank for the rest of the show.`)) return;
+    setLoading(true);
+    try {
+      await gameStateManager.deleteQuestion(question.id);
+      if (bankEditingId === question.id) closeBankEditor();
+    } catch (error) {
+      console.error('Error deleting question:', error);
+      alert('Failed to delete the question. Check the console.');
     } finally {
       setLoading(false);
     }
@@ -251,17 +423,6 @@ export default function ControlPage() {
       if (updates.bigX !== undefined && updates.bigX) {
         await playBigXSound();
       }
-
-      // If closing audience window, increment voting round for next opening
-      if (updates.audienceWindow === false) {
-        const currentVotingRound = gameState?.votingRound || 1;
-        await gameStateManager.updateGameState({ votingRound: currentVotingRound + 1 });
-
-        await gameStateManager.updateAudienceVotingResults();
-        // Reload audience members
-        const members = await gameStateManager.getAudienceMembers();
-        setAudienceMembers(members);
-      }
     } catch (error) {
       console.error('Error updating game state:', error);
     } finally {
@@ -269,10 +430,26 @@ export default function ControlPage() {
     }
   };
 
-  const handleScoreChange = async (teamId: 'red' | 'green' | 'blue', change: number) => {
+  /**
+   * Opening/closing voting is its own call: closing also bumps the voting round
+   * and recounts the dugouts, and records the tally on the timeline.
+   */
+  const handleSetAudienceWindow = async (open: boolean) => {
     setLoading(true);
     try {
-      await gameStateManager.updateTeamScore(teamId, change);
+      await gameStateManager.setAudienceWindow(open);
+      if (!open) setAudienceMembers(await gameStateManager.getAudienceMembers());
+    } catch (error) {
+      console.error('Error changing the voting window:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleScoreChange = async (teamId: TeamColor, change: number) => {
+    setLoading(true);
+    try {
+      await gameStateManager.adjustScore(teamId, change);
     } catch (error) {
       console.error('Error updating score:', error);
     } finally {
@@ -280,53 +457,47 @@ export default function ControlPage() {
     }
   };
 
-  // Utility function to export audience data to CSV
-  // Fetch audience data (async) then trigger a synchronous download.
-  // Must be called as: const members = await fetchAudienceForDownload();
-  // then call triggerAudienceDownload(members) synchronously.
-  const fetchAudienceForDownload = async () => {
-    return await gameStateManager.getAudienceMembers();
-  };
-
-  const triggerAudienceDownload = (members: Awaited<ReturnType<typeof gameStateManager.getAudienceMembers>>) => {
-    if (members.length === 0) return;
-    const csv = gameStateManager.exportAudienceToCSV(members);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    const timestamp = new Date().toISOString().split('T')[0];
-    link.download = `audience-votes-${timestamp}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    console.log(`Downloaded CSV for ${members.length} audience members.`);
+  /**
+   * Download the show workbook: sheet 1 the voter list, sheet 2 the timeline of
+   * the episode in the order it happened.
+   */
+  const handleExportWorkbook = async (): Promise<boolean> => {
+    try {
+      const [members, events] = await Promise.all([
+        gameStateManager.getAudienceMembers(),
+        gameStateManager.getTimeline()
+      ]);
+      if (members.length === 0 && events.length === 0) {
+        alert('Nothing to export yet — no votes and no game events.');
+        return false;
+      }
+      const fileName = await downloadShowWorkbook({
+        members,
+        timeline: events,
+        activeTeams: gameState?.activeTeams ?? ['red', 'green', 'blue'],
+        episodeInfo: gameState?.episodeInfo
+      });
+      console.log(`Exported ${members.length} voters and ${events.length} events to ${fileName}`);
+      return true;
+    } catch (error) {
+      console.error('Error exporting workbook:', error);
+      alert('Failed to build the Excel file. Check the console.');
+      return false;
+    }
   };
 
   const handleResetGame = async () => {
-    // First confirmation
     if (!confirm('Are you sure you want to reset the entire game?')) return;
 
-    // Fetch audience data FIRST (async is safe here, before any download trigger)
-    let members: Awaited<ReturnType<typeof gameStateManager.getAudienceMembers>> = [];
-    try {
-      members = await fetchAudienceForDownload();
-      console.log(`Fetched ${members.length} audience members for backup.`);
-    } catch (e) {
-      console.error('Could not fetch audience data before reset:', e);
-    }
+    const members = await gameStateManager.getAudienceMembers().catch(() => []);
 
-    // Final confirmation — user clicking OK acts as a fresh gesture for the download
     const finalConfirm = confirm(
-      members.length > 0
-        ? `FINAL CONFIRMATION: This will permanently delete ${members.length} audience votes, reset scores, and clear game state. A CSV backup will download automatically. Continue?`
-        : 'FINAL CONFIRMATION: This will reset scores and clear game state. Continue?'
+      `FINAL CONFIRMATION: This will permanently delete ${members.length} audience votes, ${timeline.length} timeline events, reset scores and clear game state. The workbook downloads first as a backup. Continue?`
     );
     if (!finalConfirm) return;
 
-    // Trigger download SYNCHRONOUSLY right after confirm click — browser allows this
-    if (members.length > 0) {
-      triggerAudienceDownload(members);
-    }
+    // Last-chance backup, downloaded before anything is destroyed.
+    if (members.length > 0 || timeline.length > 0) await handleExportWorkbook();
 
     setLoading(true);
     try {
@@ -334,7 +505,7 @@ export default function ControlPage() {
       await gameStateManager.resetGame();
       setCurrentQuestion(null);
       console.log('Control: Game reset completed.');
-      alert(members.length > 0 ? 'Game reset complete! Audience CSV was downloaded automatically.' : 'Game reset complete!');
+      alert('Game reset complete.');
     } catch (error) {
       console.error('Error resetting game:', error);
       alert('Error during game reset. Check console for details.');
@@ -344,24 +515,9 @@ export default function ControlPage() {
   };
 
   const handleSelectQuestion = async (questionId: string) => {
-    // When selecting a question, reset to initial state
-    // In Round 1, Round 3, and Pre-Show, questions should be revealed by default
-    const shouldRevealQuestion = ['round1', 'round3', 'pre-show'].includes(gameState?.currentRound || '');
-
-    // Hide all answers first (fire and forget - don't block UI)
-    gameStateManager.hideAllAnswers(questionId).catch((error) => {
-      console.error('Error hiding answers:', error);
-    });
-
-    const updates = {
-      currentQuestion: questionId,
-      questionRevealed: shouldRevealQuestion, // Reveal for round1, round3, pre-show
-      revealMode: 'one-by-one' as const,
-      guessMode: false
-    };
-
-    // Fire and forget - don't wait for Firestore, let real-time listeners handle it
-    gameStateManager.updateGameState(updates).catch((error) => {
+    // Resets the board, puts the question up (revealed in round1/round3/pre-show)
+    // and records it on the timeline.
+    gameStateManager.selectQuestion(questionId).catch((error) => {
       console.error('Error selecting question:', error);
     });
   };
@@ -680,9 +836,11 @@ export default function ControlPage() {
         if (gameState?.currentRound === 'round3' && gameState?.round1CurrentGuessingTeam) {
           const penalty = parseInt(round3PenaltyAmount) || 0;
           if (penalty > 0) {
-            const newBucket = (parseInt(round3BucketTotal) || 0) + penalty;
-            await gameStateManager.updateTeamScore(gameState.round1CurrentGuessingTeam, -penalty);
-            await gameStateManager.updateGameState({ round3BucketTotal: newBucket });
+            // Deducts, tops up the bucket and records one timeline row.
+            const newBucket = await gameStateManager.applyRound3Penalty(
+              gameState.round1CurrentGuessingTeam,
+              penalty
+            );
             setRound3BucketTotal(String(newBucket));
           }
         }
@@ -884,7 +1042,7 @@ export default function ControlPage() {
 
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
+    <div className="min-h-screen bg-gray-100 p-6 text-black">
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between space-x-6">
           {/* CSV Upload */}
@@ -956,7 +1114,7 @@ export default function ControlPage() {
           {/* Header */}
           <div className="bg-white rounded-lg shadow-md p-6 mb-6 grow">
             <div className="flex justify-between items-center mb-4">
-              <h1 className="text-xl font-bold text-gray-900">Game Show Control Panel</h1>
+              <h1 className="text-xl font-bold text-gray-900">Game Show Control Panel (BACKUP)</h1>
               <button
                 onClick={logout}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors text-sm"
@@ -965,8 +1123,117 @@ export default function ControlPage() {
               </button>
             </div>
 
+            {/* Failover banner + switch */}
+            <div
+              className={`mb-4 rounded-lg border p-3 flex items-center justify-between gap-4 ${backupMode
+                ? 'bg-green-50 border-green-400'
+                : 'bg-amber-50 border-amber-400'
+                }`}
+            >
+              <div className="text-sm">
+                <div className={`font-bold ${backupMode ? 'text-green-800' : 'text-amber-900'}`}>
+                  {backupMode ? '✓ YOU ARE IN CONTROL' : '⚠ THE SERVER IS IN CONTROL'}
+                </div>
+                <div className="text-xs text-gray-600">
+                  {backupMode
+                    ? 'The live server has stopped mirroring. This panel is driving the show.'
+                    : 'Anything you change here will be overwritten by the server. Take control first.'}
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  const next = !backupMode;
+                  const msg = next
+                    ? 'TAKE CONTROL of the show? The live server stops mirroring and this panel becomes the authority. Do not switch back mid-show.'
+                    : 'Hand control back to the SERVER? Only do this if the server is healthy and nobody is running the show from here.';
+                  if (!confirm(msg)) return;
+                  try {
+                    await setBackupMode(next);
+                  } catch (error) {
+                    console.error('Failover switch failed:', error);
+                    alert('Could not flip the failover switch — check Firestore rules for control/mode.');
+                  }
+                }}
+                className={`shrink-0 px-4 py-2 rounded-lg font-bold text-sm text-white ${backupMode ? 'bg-gray-700 hover:bg-gray-800' : 'bg-green-600 hover:bg-green-700'
+                  }`}
+              >
+                {backupMode ? 'GIVE CONTROL BACK' : 'TAKE CONTROL'}
+              </button>
+            </div>
+
+            {/* Team format: 3 horses or 2v2 */}
+            <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-indigo-900 mb-1">Show format</label>
+                  <select
+                    value={modeDraft.mode}
+                    onChange={(e) => setModeDraft({ ...modeDraft, mode: e.target.value as TeamMode })}
+                    className="p-2 border border-indigo-300 rounded text-sm bg-white"
+                    disabled={loading}
+                  >
+                    <option value="3-horse">3 Horses (Red · Green · Blue)</option>
+                    <option value="2v2">2v2 (pick two horses)</option>
+                  </select>
+                </div>
+
+                {modeDraft.mode === '2v2' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-semibold text-indigo-900 mb-1">Team A</label>
+                      <select
+                        value={modeDraft.a}
+                        onChange={(e) => setModeDraft({ ...modeDraft, a: e.target.value as TeamColor })}
+                        className="p-2 border border-indigo-300 rounded text-sm bg-white capitalize"
+                        disabled={loading}
+                      >
+                        {(['red', 'green', 'blue'] as TeamColor[]).map(c => (
+                          <option key={c} value={c} className="capitalize">{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-indigo-900 mb-1">Team B</label>
+                      <select
+                        value={modeDraft.b}
+                        onChange={(e) => setModeDraft({ ...modeDraft, b: e.target.value as TeamColor })}
+                        className="p-2 border border-indigo-300 rounded text-sm bg-white capitalize"
+                        disabled={loading}
+                      >
+                        {(['red', 'green', 'blue'] as TeamColor[]).map(c => (
+                          <option key={c} value={c} className="capitalize">{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                <button
+                  onClick={handleSetTeamMode}
+                  className="p-2 px-4 bg-indigo-600 text-white rounded font-bold text-sm hover:bg-indigo-700 disabled:opacity-50"
+                  disabled={loading}
+                >
+                  APPLY FORMAT
+                </button>
+
+                <div className="text-xs text-indigo-800 ml-auto">
+                  In play now:{' '}
+                  <strong className="uppercase">
+                    {(gameState?.activeTeams ?? []).join(' · ') || '—'}
+                  </strong>
+                  {gameState?.teamMode === '2v2' && (
+                    <span className="ml-2 px-2 py-0.5 bg-indigo-600 text-white rounded-full font-bold">2v2</span>
+                  )}
+                </div>
+              </div>
+              <p className="text-[11px] text-indigo-700 mt-2">
+                The horses not in play disappear from the control panel, the display and the audience
+                voting screen. Their scores are kept, so switching back mid-show loses nothing.
+              </p>
+            </div>
+
             {/* Game State Overview */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className={`grid grid-cols-2 gap-4 mb-6 ${teams.length === 2 ? 'md:grid-cols-3' : 'md:grid-cols-4'}`}>
               <div className="text-left">
                 <div className="text-sm text-gray-600 mb-2">Current Round</div>
                 <div className="text-xl font-bold mb-2">{gameState?.currentRound?.toUpperCase() || 'PRE-SHOW'}</div>
@@ -1105,18 +1372,150 @@ export default function ControlPage() {
                     <div className="space-y-2 max-h-96 overflow-y-auto">
                       {loadedQuestions.length > 0 ? (
                         loadedQuestions.map((question) => (
-                          <button
+                          <div
                             key={question.id}
-                            onClick={() => handleSelectQuestion(question.id)}
-                            className={`w-full p-2 text-left rounded border ${gameState?.currentQuestion === question.id
+                            className={`rounded border ${gameState?.currentQuestion === question.id
                               ? 'bg-blue-100 border-blue-500'
-                              : 'bg-gray-50 border-gray-300 hover:bg-gray-100'
+                              : 'bg-gray-50 border-gray-300'
                               }`}
-                            disabled={loading}
                           >
-                            <div className="font-bold text-sm">{question.id}</div>
-                            <div className="text-xs text-gray-600 truncate">{question.text}</div>
-                          </button>
+                            <div className="flex items-stretch">
+                              <button
+                                onClick={() => handleSelectQuestion(question.id)}
+                                className="flex-1 p-2 text-left hover:bg-gray-100 rounded-l min-w-0"
+                                disabled={loading}
+                              >
+                                <div className="font-bold text-sm">{question.id}</div>
+                                <div className="text-xs text-gray-600 truncate">{question.text}</div>
+                              </button>
+                              <button
+                                onClick={() =>
+                                  bankEditingId === question.id ? closeBankEditor() : openBankEditor(question)
+                                }
+                                title="Edit this question while the show runs"
+                                className="px-2 text-sm border-l border-gray-300 hover:bg-gray-200"
+                                disabled={loading}
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={() => handleDeleteQuestion(question)}
+                                title="Delete this question"
+                                className="px-2 text-sm border-l border-gray-300 text-red-600 hover:bg-red-100 rounded-r"
+                                disabled={loading}
+                              >
+                                🗑
+                              </button>
+                            </div>
+
+                            {/* Inline editor — any question, any time */}
+                            {bankEditingId === question.id && bankEditDraft && (
+                              <div className="p-3 border-t border-gray-300 bg-white space-y-2">
+                                <label className="block text-[11px] font-semibold text-gray-500">QUESTION</label>
+                                <textarea
+                                  rows={2}
+                                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                  value={bankEditDraft.text}
+                                  onChange={e => setBankEditDraft({ ...bankEditDraft, text: e.target.value })}
+                                />
+                                <label className="block text-[11px] font-semibold text-gray-500">
+                                  ROUND 2 TEASER (optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                  value={bankEditDraft.displayText}
+                                  onChange={e => setBankEditDraft({ ...bankEditDraft, displayText: e.target.value })}
+                                />
+                                <label className="block text-[11px] font-semibold text-gray-500">ANSWERS</label>
+                                {bankEditDraft.answers.map((a, i) => (
+                                  <div key={a.id} className="flex items-center gap-1">
+                                    <span className="text-[11px] text-gray-400 w-4 shrink-0">{i + 1}</span>
+                                    {a.revealed && (
+                                      <span className="text-[10px] font-bold text-amber-600 shrink-0">LIVE</span>
+                                    )}
+                                    <input
+                                      type="text"
+                                      className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm min-w-0"
+                                      value={a.text}
+                                      onChange={e => setBankEditDraft({
+                                        ...bankEditDraft,
+                                        answers: bankEditDraft.answers.map(x =>
+                                          x.id === a.id ? { ...x, text: e.target.value } : x
+                                        )
+                                      })}
+                                    />
+                                    <input
+                                      type="number"
+                                      className="w-16 border border-gray-300 rounded px-1 py-1 text-sm shrink-0"
+                                      value={a.value}
+                                      onChange={e => setBankEditDraft({
+                                        ...bankEditDraft,
+                                        answers: bankEditDraft.answers.map(x =>
+                                          x.id === a.id ? { ...x, value: e.target.value } : x
+                                        )
+                                      })}
+                                    />
+                                    <button
+                                      onClick={() => handleDeleteAnswer(question.id, a.id, a.text)}
+                                      disabled={loading}
+                                      title="Delete this answer"
+                                      className="shrink-0 px-1.5 py-1 text-sm font-bold rounded bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 disabled:opacity-40"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+
+                                {/* Add an answer to this question */}
+                                <div className="flex items-center gap-1 pt-1">
+                                  <span className="text-[11px] text-gray-400 w-4 shrink-0">+</span>
+                                  <input
+                                    type="text"
+                                    placeholder="New answer"
+                                    className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm min-w-0"
+                                    value={newAnswerDraft.text}
+                                    onChange={e => setNewAnswerDraft({ ...newAnswerDraft, text: e.target.value })}
+                                  />
+                                  <input
+                                    type="number"
+                                    placeholder="₹"
+                                    className="w-16 border border-gray-300 rounded px-1 py-1 text-sm shrink-0"
+                                    value={newAnswerDraft.value}
+                                    onChange={e => setNewAnswerDraft({ ...newAnswerDraft, value: e.target.value })}
+                                  />
+                                  <button
+                                    onClick={() => handleAddAnswer(question.id)}
+                                    disabled={loading || !newAnswerDraft.text.trim()}
+                                    className="shrink-0 px-2 py-1 text-sm font-bold rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40"
+                                  >
+                                    Add
+                                  </button>
+                                </div>
+
+                                <p className="text-[11px] text-gray-400">
+                                  Edits go live the moment you save. Re-valuing an answer that is
+                                  already revealed and scored moves that team&apos;s total by the
+                                  difference; deleting one returns its points.
+                                </p>
+                                <div className="flex gap-2 pt-1">
+                                  <button
+                                    onClick={saveBankEditor}
+                                    disabled={loading}
+                                    className="flex-1 py-1.5 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 disabled:opacity-40"
+                                  >
+                                    SAVE CHANGES
+                                  </button>
+                                  <button
+                                    onClick={closeBankEditor}
+                                    className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded text-sm font-bold hover:bg-gray-300"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         ))
                       ) : (
                         <div className="text-center py-4 text-gray-500">
@@ -1366,62 +1765,6 @@ export default function ControlPage() {
               })()}
             </div>
 
-            {/* Edit Answers Panel */}
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <button
-                className="w-full flex items-center justify-between px-6 py-4 text-left font-bold text-gray-800 hover:bg-gray-50 transition-colors"
-                onClick={() => setEditAnswersPanelOpen(o => !o)}
-              >
-                <span>Edit Answers</span>
-                <span className="text-gray-400 text-sm">{editAnswersPanelOpen ? '▲' : '▼'}</span>
-              </button>
-
-              {editAnswersPanelOpen && (
-                <div className="px-6 pb-6 space-y-3 border-t border-gray-100 pt-4">
-                  {!currentQuestion ? (
-                    <p className="text-sm text-gray-400">No question selected.</p>
-                  ) : (
-                    currentQuestion.answers.map((answer, index) => {
-                      const draft = editAnswerDrafts[answer.id];
-                      const isDirty = draft && (draft.text !== answer.text || draft.value !== String(answer.value));
-                      return (
-                        <div key={answer.id} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-400 w-5 text-right shrink-0">#{index + 1}</span>
-                          {answer.revealed && (
-                            <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-300 rounded px-1 shrink-0">LIVE</span>
-                          )}
-                          <input
-                            type="text"
-                            className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 min-w-0"
-                            value={draft?.text ?? answer.text}
-                            onChange={e => setEditAnswerDrafts(prev => ({
-                              ...prev,
-                              [answer.id]: { ...prev[answer.id], text: e.target.value }
-                            }))}
-                          />
-                          <input
-                            type="number"
-                            className="w-20 border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 shrink-0"
-                            value={draft?.value ?? String(answer.value)}
-                            onChange={e => setEditAnswerDrafts(prev => ({
-                              ...prev,
-                              [answer.id]: { ...prev[answer.id], value: e.target.value }
-                            }))}
-                          />
-                          <button
-                            onClick={() => handleUpdateAnswer(answer.id)}
-                            disabled={!isDirty || loading}
-                            className="shrink-0 px-3 py-1.5 text-sm font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                          >
-                            Save
-                          </button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-            </div>
 
             {(['pre-show', 'round1', 'round3'].includes(gameState?.currentRound || '')) && (
               <div className="bg-white rounded-lg shadow-md p-6">
@@ -1446,7 +1789,7 @@ export default function ControlPage() {
                     <div className="text-sm font-semibold text-gray-700 mb-2">
                       Select Team & Amount
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className={`grid gap-2 ${teams.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
                       {teams.map((team) => {
                         const isCurrentGuessing = gameState?.round1CurrentGuessingTeam === team.id;
                         return (
@@ -1543,7 +1886,16 @@ export default function ControlPage() {
                                   type="text"
                                   inputMode="numeric"
                                   value={round3BucketTotal}
+                                  onFocus={() => { bucketFocused.current = true; }}
                                   onChange={(e) => setRound3BucketTotal(e.target.value)}
+                                  onBlur={async () => {
+                                    bucketFocused.current = false;
+                                    const val = parseInt(round3BucketTotal) || 0;
+                                    if (val !== (gameState?.round3BucketTotal ?? 0)) {
+                                      await gameStateManager.updateGameState({ round3BucketTotal: val });
+                                    }
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                                   className="w-24 p-1 border border-blue-300 rounded text-center font-bold text-blue-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
                               </div>
@@ -1633,7 +1985,7 @@ export default function ControlPage() {
                   <div className="text-sm font-semibold text-gray-700 mb-2">
                     Select Team Playing Round 2
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className={`grid gap-2 ${teams.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
                     {teams.map((team) => {
                       const isCurrentTeam = gameState?.round2CurrentTeam === team.id;
                       return (
@@ -1982,7 +2334,7 @@ export default function ControlPage() {
                     <input
                       type="checkbox"
                       checked={gameState?.audienceWindow || false}
-                      onChange={() => handleUpdateGameState({ audienceWindow: !gameState?.audienceWindow })}
+                      onChange={() => handleSetAudienceWindow(!gameState?.audienceWindow)}
                       className="sr-only peer"
                       disabled={loading}
                     />
@@ -2031,14 +2383,11 @@ export default function ControlPage() {
                 </div>
 
                 <button
-                  onClick={() => {
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-                    gameStateManager.downloadAudienceCSV(audienceMembers, `audience-votes-${timestamp}.csv`);
-                  }}
+                  onClick={handleExportWorkbook}
                   className="w-full p-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700"
-                  disabled={loading || audienceMembers.length === 0}
+                  disabled={loading || (audienceMembers.length === 0 && timeline.length === 0)}
                 >
-                  📥 Download Votes CSV ({audienceMembers.length})
+                  📊 Download Show Excel ({audienceMembers.length} votes · {timeline.length} events)
                 </button>
               </div>
             </div>
@@ -2084,31 +2433,23 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* Export Audience Data */}
+            {/* Export show data */}
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">Export Audience Data</h2>
+              <h2 className="text-xl font-bold mb-4">Export Show Data</h2>
               <button
                 onClick={async () => {
-                  try {
-                    // Fetch data first (async), then download synchronously
-                    const members = await fetchAudienceForDownload();
-                    if (members.length === 0) {
-                      alert('No audience data to export yet.');
-                      return;
-                    }
-                    triggerAudienceDownload(members);
-                    alert(`Exported ${members.length} audience members successfully!`);
-                  } catch {
-                    alert('Failed to export audience data. Check console for details.');
-                  }
+                  const ok = await handleExportWorkbook();
+                  if (ok) alert(`Exported ${audienceMembers.length} voters and ${timeline.length} timeline events.`);
                 }}
                 className="w-full p-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700"
                 disabled={loading}
               >
-                📥 DOWNLOAD AUDIENCE CSV
+                📊 DOWNLOAD SHOW EXCEL
               </button>
               <p className="text-xs text-gray-500 mt-2">
-                Export current audience votes to CSV file
+                One .xlsx with two sheets — <strong>Audience Votes</strong> (every voter) and{' '}
+                <strong>Game Timeline</strong> ({timeline.length} events, in the order they happened,
+                with running scores).
               </p>
             </div>
 

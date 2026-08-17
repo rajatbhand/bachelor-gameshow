@@ -22,12 +22,12 @@
   --foreground: #171717;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* No dark-mode override.
+   Every operator-facing surface in this app is a light card (white panels on
+   gray-100). Flipping --foreground to near-white when the OS is in dark mode
+   turned all inherited text — the "Overlays" heading, the toggle labels —
+   into white-on-white. The display screen sets `text-white` on its own root,
+   so it is unaffected by this being fixed. */
 
 body {
   color: var(--foreground);
